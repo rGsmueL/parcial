@@ -22,7 +22,9 @@ setup(
             'cliente = arm_broker.cliente:main',
             'interprete_ordenes = arm_broker.interprete_ordenes:main',
             'transcriptor_voz = arm_broker.transcriptor_voz:main',
-            'orquestador = arm_broker.orquestador:main',
+            'percepcion_camara = arm_broker.percepcion_camara:main',   
+            'orquestador_item2 = arm_broker.orquestador_item2:main',  
+            'cliente_texto = arm_broker.cliente_texto:main', 
         ],
     },
 )
