@@ -18,7 +18,7 @@ OBJETOS = {
 
 COLORES = {
     'rojo': ['rojo', 'roja'],
-    'verde': ['verde'],
+    'verde': ['verde','verd',],
     'azul': ['azul'],
     'amarillo': ['amarillo', 'amarilla'],
 }

@@ -21,6 +21,8 @@ setup(
             'broker = arm_broker.broker:main',
             'cliente = arm_broker.cliente:main',
             'interprete_ordenes = arm_broker.interprete_ordenes:main',
+            'transcriptor_voz = arm_broker.transcriptor_voz:main',
+            'orquestador = arm_broker.orquestador:main',
         ],
     },
 )
