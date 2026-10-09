@@ -7,14 +7,13 @@ envía la secuencia de goals a la acción move_arm (con la prioridad del modelo)
 
 Flujo por orden:
   /orden_decidida → ¿permitida? no → rechazo con causa (CSV), sin encolar
-                  → sí → espera /objeto_detectado (color) → secuencia:
-                       pinza abrir → busqueda → recogida → pinza cerrar
+                  → sí → busqueda (espacio de detección) → espera /objeto_detectado → secuencia:
+                       pinza abrir → recogida → pinza cerrar
                        → busqueda → reparto → destino[color] → pinza abrir → home
                   → registra intento + error por FK del RB-2 """
 
 import csv
 import json
-import math
 import os
 import queue
 import threading
@@ -26,7 +25,6 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
-from control_msgs.action import GripperCommand
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
@@ -247,14 +245,20 @@ class OrquestadorItem2(Node):
                            'objeto o color no reconocidos; no hay pose de agarre')
             return
 
-        if accion != 'soltar' and self.usar_camara:
-            det = self._esperar_deteccion(color)
-            if det is None:
-                self._rechazar(decision, 'sin_deteccion',
-                               f'la cámara no confirmó un objeto {color} estable sobre la mesa')
-                return
-
         prioridad = max(0, min(255, int(decision.get('prioridad', 0)) * self.escala))
+
+        if accion != 'soltar':
+            # Posiciona el brazo en POSE_BUSQUEDA (espacio de detección) ANTES de verificar
+            # el color; si no, la cámara vería la mesa desde la pose base y no confirmaría nada.
+            self.get_logger().info('🔎 yendo a POSE_BUSQUEDA (espacio de detección)')
+            self._mover_a(poses_mod.POSE_BUSQUEDA, prioridad)
+            if self.usar_camara:
+                det = self._esperar_deteccion(color)
+                if det is None:
+                    self._rechazar(decision, 'sin_deteccion',
+                                   f'la cámara no confirmó un objeto {color} estable sobre la mesa')
+                    return
+
         self.intento += 1
         self.get_logger().info(
             f'▶️  intento {self.intento}: "{frase}" accion={accion} '

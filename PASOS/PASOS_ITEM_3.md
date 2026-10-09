@@ -107,7 +107,7 @@ ros2 run jetcobot_driver sync_plan_nx
 cd ~/rb2_ws && source install/setup.bash; export ROS_DOMAIN_ID=42; export ROS_DOMAIN_ID=$((ROS_DOMAIN_ID+1)); export RMW_IMPLEMENTATION=rmw_fastrtps_cpp; export ROS_DISCOVERY_SERVER="172.51.1.28:11811"; ros2 daemon stop; ros2 daemon start
 ros2 run arm_broker broker --ros-args \
   -p politica:=prioridad -p tau_envejecimiento_s:=12.0 \
-  -p paso_max_rad:=1.6 -p duracion_movimiento_s:=1.5
+  -p paso_max_rad:=1.6 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1
 
 # T2 — intérprete P1
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_PC>:8000

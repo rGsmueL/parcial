@@ -53,11 +53,10 @@ def escalonar(q_desde_rad, q_hasta_rad, paso_max_rad):
 def plan_agarrar():
     """Secuencia de agarre: abre la pinza, baja a la pose de recogida y cierra.
 
-    Retorna una lista de pasos, cada uno ('pose', nombre, grados) o ('gripper', 'abrir'/'cerrar').
-    Las posiciones son conocidas; la pose de agarre es fija (POSE_RECOGIDA)."""
+    El orquestador ya deja el brazo en POSE_BUSQUEDA (espacio de detección) antes de
+    verificar el color, por eso este plan NO repite esa pose."""
     return [
         ('gripper', 'abrir'),
-        ('pose', 'busqueda', POSE_BUSQUEDA),
         ('pose', 'recogida', POSE_RECOGIDA),
         ('gripper', 'cerrar'),
     ]

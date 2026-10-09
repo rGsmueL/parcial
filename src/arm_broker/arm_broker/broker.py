@@ -35,8 +35,8 @@ class ArmBroker(Node):
         self.declare_parameter('tau_envejecimiento_s', 8.0)       # Constante tau del aging
         self.declare_parameter('cola_max', 20)                    # Pedidos pendientes admitidos
         self.declare_parameter('paso_max_rad', 1.2)               # Salto articular máximo por movimiento
-        self.declare_parameter('duracion_movimiento_s', 3.0)      # Duración de cada movimiento
-        self.declare_parameter('pasos_interpolacion', 10)         # Mensajes /joint_states por movimiento
+        self.declare_parameter('duracion_movimiento_s', 5.0)      # Duración de cada movimiento (>=5 s para el brazo físico)
+        self.declare_parameter('pasos_interpolacion', 1)          # Mensajes /joint_states por movimiento (1 = ángulo objetivo real)
         self.declare_parameter('archivo_rechazos', 'rechazos.csv')  # Vacío desactiva el registro
 
         # se agarra la política de cola segunel parámetro
