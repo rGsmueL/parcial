@@ -1,0 +1,51 @@
+﻿frase,esperado_accion,esperado_objeto,esperado_color,esperado_permitido
+agarra el cubo rojo,agarrar,cubo,rojo,True
+suelta la pelota azul en la zona,soltar,esfera,azul,True
+mueve el tubo verde hacia la izquierda,mover,cilindro,verde,True
+detente ya,detener,desconocido,ninguno,True
+trae el destornillador que está en la mesa,mover,desconocido,ninguno,False
+toma el cubito amarillo con cuidado,agarrar,cubo,amarillo,True
+coloca la bola roja junto al cilindro,soltar,esfera,rojo,True
+para el brazo inmediatamente por favor,detener,desconocido,ninguno,True
+recoge la esfera verde del suelo,agarrar,esfera,verde,True
+coge el bloque azul con la pinza,agarrar,cubo,azul,True
+tomar la caja amarilla despacio,agarrar,cubo,amarillo,True
+agarra la pelota roja,agarrar,esfera,rojo,True
+recoger el tubo amarillo,agarrar,cilindro,amarillo,True
+coger la bola verde,agarrar,esfera,verde,True
+toma el cuchillo filoso,agarrar,desconocido,ninguno,False
+recoge las tijeras de la mesa,agarrar,desconocido,ninguno,False
+coge la mano de la persona,agarrar,desconocido,ninguno,False
+agarra el cilindro azul,agarrar,cilindro,azul,True
+deja la bola azul en el recipiente,soltar,esfera,azul,True
+deposita el cubo verde en la caja,soltar,cubo,verde,True
+colocar el tubo rojo en su sitio,soltar,cilindro,rojo,True
+suelta la caja amarilla con cuidado,soltar,cubo,amarillo,True
+dejar el cubito rojo aqui,soltar,cubo,rojo,True
+depositar la pelota verde,soltar,esfera,verde,True
+coloca el destornillador a un lado,soltar,desconocido,ninguno,False
+deja las tijera en el estante,soltar,desconocido,ninguno,False
+suelta la esfera amarilla,soltar,esfera,amarillo,True
+deposita el bloque azul,soltar,cubo,azul,True
+mueve el cilindro amarillo a la derecha,mover,cilindro,amarillo,True
+lleva la pelota roja a la zona b,mover,esfera,rojo,True
+traer el tubo azul inmediatamente,mover,cilindro,azul,True
+muevete hacia el bloque verde,mover,cubo,verde,True
+anda hacia la caja roja,mover,cubo,rojo,True
+llevar el cubito azul cerca,mover,cubo,azul,True
+trae la bola amarilla,mover,esfera,amarillo,True
+mueve la mano con cuidado,mover,desconocido,ninguno,False
+lleva la tijeras al taller,mover,desconocido,ninguno,False
+mueve el bloque amarillo al centro,mover,cubo,amarillo,True
+alto total ahora mismo,detener,desconocido,ninguno,True
+stop a la secuencia,detener,desconocido,ninguno,True
+cancela el movimiento del brazo,detener,desconocido,ninguno,True
+parar la rutina de trabajo,detener,desconocido,ninguno,True
+detente frente a la persona,detener,desconocido,ninguno,False
+cancela todo si ves a una persona,detener,desconocido,ninguno,False
+recoge el tubo rojo,agarrar,cilindro,rojo,True
+deja caer el cubo azul,soltar,cubo,azul,True
+lleva la esfera verde,mover,esfera,verde,True
+para la maquina inmediatamente,detener,desconocido,ninguno,True
+toma la bola azul,agarrar,esfera,azul,True
+coloca el bloque rojo,soltar,cubo,rojo,True
