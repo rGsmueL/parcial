@@ -213,7 +213,8 @@ def item2():
               'aparezcan en /arm/queue_state y en el CSV de rechazos, y para que en el ítem '
               '3 se pueda ver cliente por cliente quién sufrió más con cada política.'))
     a(sub('Variables de red'))
-    a(parrafo('Las cinco máquinas toman los valores de config/equipo.env. El dominio es 43 '
+    a(parrafo('Las cinco máquinas toman las variables de red del bloque copiable de '
+              'PASOS.txt (no se usa config/equipo.env). El dominio es 43 '
               'porque el enunciado pide 42 más el número de equipo y ours es el equipo 1. '
               'Un detalle que nos costó un rato: ROS_DOMAIN_ID tiene que ser el mismo en las '
               'cinco, y si no lo es las máquinas simplemente no se ven, sin error visible.'))

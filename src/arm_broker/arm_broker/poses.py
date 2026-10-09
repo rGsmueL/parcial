@@ -50,23 +50,50 @@ def escalonar(q_desde_rad, q_hasta_rad, paso_max_rad):
     return puntos
 
 
-def plan_pick_and_place(color):
-    """Plan de agarre y traslado para el color pedido.
+def plan_agarrar():
+    """Secuencia de agarre: abre la pinza, baja a la pose de recogida y cierra.
 
     Retorna una lista de pasos, cada uno ('pose', nombre, grados) o ('gripper', 'abrir'/'cerrar').
-    Las posiciones son conocidas; la pose de agarre es fija (POSE_RECOGIDA) y el destino cambia
-    según el color (DESTINOS)."""
-    color = (color or '').lower()
-    pasos = [
+    Las posiciones son conocidas; la pose de agarre es fija (POSE_RECOGIDA)."""
+    return [
         ('gripper', 'abrir'),
         ('pose', 'busqueda', POSE_BUSQUEDA),
         ('pose', 'recogida', POSE_RECOGIDA),
         ('gripper', 'cerrar'),
+    ]
+
+
+def _desplazar_y_soltar(color):
+    """Pasos comunes de transporte hasta la zona del color y apertura de la pinza (sin retorno).
+
+    Si el color no tiene destino conocido, solo pasa por reparto y abre la pinza."""
+    pasos = [
         ('pose', 'busqueda', POSE_BUSQUEDA),
         ('pose', 'reparto', POSE_REPARTO),
     ]
-    destino = DESTINOS.get(color)
+    destino = DESTINOS.get((color or '').lower())
     if destino:
         pasos.append(('pose', f'destino_{color}', destino))
-    pasos += [('gripper', 'abrir'), ('pose', 'home', POSE_HOME)]
+    pasos.append(('gripper', 'abrir'))
     return pasos
+
+
+def plan_soltar(color=None):
+    """Plan de depósito (acción 'soltar').
+
+    Con color va a la zona de ese color; sin color abre la pinza en la posición actual.
+    En ambos casos retorna a la pose de búsqueda para encadenar otro agarre."""
+    color = (color or '').lower()
+    if color and color != 'ninguno':
+        pasos = _desplazar_y_soltar(color)
+    else:
+        pasos = [('gripper', 'abrir')]
+    pasos.append(('pose', 'busqueda', POSE_BUSQUEDA))
+    return pasos
+
+
+def plan_pick_and_place(color):
+    """Plan completo de agarre y traslado para el color pedido (acción 'mover'/'llevar').
+
+    Retrocompatible con la secuencia original: termina en POSE_HOME."""
+    return plan_agarrar() + _desplazar_y_soltar(color) + [('pose', 'home', POSE_HOME)]

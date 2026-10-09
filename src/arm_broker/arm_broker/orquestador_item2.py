@@ -93,6 +93,7 @@ class OrquestadorItem2(Node):
         self.cola = queue.Queue()
         self._parar = threading.Event()
         self.intento = 0
+        self.cargando = False
 
         self.hilo = threading.Thread(target=self._trabajador, daemon=True)
         self.hilo.start()
@@ -215,9 +216,10 @@ class OrquestadorItem2(Node):
             f'   {f.state} pos={f.queue_position} t={f.elapsed_s:.1f}s',
             throttle_duration_sec=1.0)
 
-    # 6. Atención de una decisión válida
+    # 6. Atención de una decisión válida (despacho por acción)
     def _atender(self, decision):
         frase = decision.get('frase', '')
+        accion = (decision.get('accion') or 'desconocido').lower()
         objeto = decision.get('objeto', 'desconocido')
         color = (decision.get('color') or 'ninguno').lower()
         motivo = decision.get('motivo', '')
@@ -225,12 +227,27 @@ class OrquestadorItem2(Node):
         if not decision.get('permitido', False):
             self._rechazar(decision, 'no_permitida', motivo or 'el modelo marcó permitido=False')
             return
-        if objeto == 'desconocido' or color == 'ninguno':
+
+        # 'detener' no necesita objeto/color: limpia la cola y vuelve a HOME
+        if accion == 'detener':
+            self._detener(decision)
+            return
+
+        tiene_color = color not in ('', 'ninguno')
+        if accion not in ('agarrar', 'soltar', 'mover', 'llevar'):
+            # acción no reconocida: si hay color, se comporta como un traslado completo
+            accion = 'mover' if tiene_color else 'desconocido'
+
+        if accion == 'desconocido':
+            self._rechazar(decision, 'objeto_desconocido',
+                           'acción no reconocida y sin color; no hay pose de agarre')
+            return
+        if accion != 'soltar' and (objeto == 'desconocido' or not tiene_color):
             self._rechazar(decision, 'objeto_desconocido',
                            'objeto o color no reconocidos; no hay pose de agarre')
             return
 
-        if self.usar_camara:
+        if accion != 'soltar' and self.usar_camara:
             det = self._esperar_deteccion(color)
             if det is None:
                 self._rechazar(decision, 'sin_deteccion',
@@ -240,13 +257,26 @@ class OrquestadorItem2(Node):
         prioridad = max(0, min(255, int(decision.get('prioridad', 0)) * self.escala))
         self.intento += 1
         self.get_logger().info(
-            f'▶️  intento {self.intento}: "{frase}" ({objeto}/{color}) priority={prioridad}')
+            f'▶️  intento {self.intento}: "{frase}" accion={accion} '
+            f'({objeto}/{color}) priority={prioridad}')
 
+        if accion == 'agarrar':
+            self._ejecutar_accion(decision, poses_mod.plan_agarrar(), prioridad,
+                                  medir_recogida=True, cargando=True)
+        elif accion == 'soltar':
+            self._ejecutar_accion(decision, poses_mod.plan_soltar(color if tiene_color else None),
+                                  prioridad, medir_recogida=False, cargando=False)
+        else:  # mover / llevar: pick-and-place completo
+            self._ejecutar_accion(decision, poses_mod.plan_pick_and_place(color), prioridad,
+                                  medir_recogida=True, cargando=False)
+
+    def _ejecutar_accion(self, decision, pasos, prioridad, medir_recogida, cargando):
+        """Ejecuta una secuencia de pasos, registra el intento y actualiza el estado de carga"""
         q_recogida_pedida = poses_mod.a_radianes(poses_mod.POSE_RECOGIDA)
         q_recogida_alcanzada = list(q_recogida_pedida)
         exito = True
 
-        for paso in poses_mod.plan_pick_and_place(color):
+        for paso in pasos:
             if paso[0] == 'gripper':
                 ok = self.pinza.abrir() if paso[1] == 'abrir' else self.pinza.cerrar()
                 exito = exito and ok
@@ -257,11 +287,31 @@ class OrquestadorItem2(Node):
                     with self.lock:
                         q_recogida_alcanzada = list(self.q_actual)
 
-        error = intentos_mod.error_mm(q_recogida_pedida, q_recogida_alcanzada)
+        self.cargando = cargando
+        frase = decision.get('frase', '')
+        objeto = decision.get('objeto', 'desconocido')
+        color = (decision.get('color') or 'ninguno').lower()
+        error = (intentos_mod.error_mm(q_recogida_pedida, q_recogida_alcanzada)
+                 if medir_recogida else 0.0)
         intentos_mod.registrar(self.archivo_intentos, self.intento, frase, objeto, color,
                                f'zona_{color}', exito, q_recogida_pedida, q_recogida_alcanzada, error)
         self.get_logger().info(
-            f'🏁 intento {self.intento}: exito={exito} error_FK={error:.2f} mm')
+            f'🏁 intento {self.intento}: exito={exito} error_FK={error:.2f} mm '
+            f'(cargando={self.cargando})')
+
+    def _detener(self, decision):
+        """Limpia la cola de órdenes pendientes y regresa el brazo a HOME"""
+        vaciados = 0
+        while True:
+            try:
+                self.cola.get_nowait()
+                vaciados += 1
+            except queue.Empty:
+                break
+        self.get_logger().info(
+            f'⏹️  DETENER: cola limpiada ({vaciados} órdenes descartadas); vuelvo a HOME')
+        self._mover_a(poses_mod.POSE_HOME, 0)
+        self.cargando = False
 
     # 7. Cierre
     def destroy_node(self):
