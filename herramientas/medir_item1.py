@@ -99,9 +99,9 @@ def main():
     aciertos_laya = aciertos_clasif = 0
     filas_salida = []
 
-    print(f'\n{"=" * 70}\n  MIDIENDO {len(filas)} FRASES — ÍTEM 1\n{"=" * 70}\n')
+    print(f'Midiendo {len(filas)} frases...')
 
-    for n, fila in enumerate(filas, start=1):
+    for fila in filas:
         frase = fila['frase']
 
         r_laya = nodo.preguntar(frase, forzar_clasificador=False)
@@ -124,13 +124,6 @@ def main():
             'clasif_prioridad': r_clasif.prioridad, 'clasif_permitido': r_clasif.permitido,
         }
 
-        marca = '✅' if not r_laya.degradada else '⚠️  DEGRADADA'
-        print(f'[{n:02d}/{len(filas)}] {marca}  "{frase}"')
-        print(f'         LAYA:         {r_laya.accion}/{r_laya.objeto}/{r_laya.color} '
-              f'p={r_laya.prioridad} permitido={r_laya.permitido}  ({r_laya.tiempo_total_s * 1000:.0f} ms)')
-        print(f'         Clasificador: {r_clasif.accion}/{r_clasif.objeto}/{r_clasif.color} '
-              f'p={r_clasif.prioridad} permitido={r_clasif.permitido}')
-
         if tiene_esperado:
             ok_laya = (r_laya.accion == fila['esperado_accion'] and r_laya.objeto == fila['esperado_objeto']
                        and r_laya.color == fila['esperado_color']
@@ -142,10 +135,7 @@ def main():
             aciertos_clasif += int(ok_clasif)
             salida['acierto_laya'] = ok_laya
             salida['acierto_clasificador'] = ok_clasif
-            print(f'         acierto  →  LAYA={"sí" if ok_laya else "no"}   '
-                  f'clasificador={"sí" if ok_clasif else "no"}')
 
-        print()
         filas_salida.append(salida)
 
     with open(ruta_salida, 'w', newline='', encoding='utf-8') as f:
@@ -157,22 +147,19 @@ def main():
         if not datos:
             print(f'  {nombre}: sin datos (LAYA no respondió a tiempo ninguna vez)')
             return
-        print(f'  {nombre}: mediana={statistics.median(datos) * 1000:.0f} ms   '
-              f'p95={percentil(datos, 95) * 1000:.0f} ms')
+        print(f'  {nombre}: mediana={statistics.median(datos)*1000:.0f} ms   p95={percentil(datos,95)*1000:.0f} ms')
 
-    print(f'{"=" * 70}\n  RESUMEN DE LATENCIA  (n={len(tiempos_total)} respuestas de LAYA sin degradar)\n{"=" * 70}')
+    print('\n--- RESUMEN LATENCIA ---')
     resumen('tiempo total             ', tiempos_total)
     resumen('tiempo de red (aprox.)   ', tiempos_red)
     resumen('tiempo de cómputo (aprox.)', tiempos_computo)
 
     if tiene_esperado:
-        print(f'\n{"=" * 70}\n  EXACTITUD  (sobre {len(filas)} frases)\n{"=" * 70}')
-        print(f'  LAYA:         {aciertos_laya}/{len(filas)}  ({100 * aciertos_laya / len(filas):.0f}%)')
-        print(f'  Clasificador: {aciertos_clasif}/{len(filas)}  ({100 * aciertos_clasif / len(filas):.0f}%)')
-    else:
-        print('\n(no hay columnas esperado_* en el CSV de entrada — no se calculó exactitud)')
+        print('\n--- EXACTITUD ---')
+        print(f'  LAYA:         {aciertos_laya}/{len(filas)} ({100*aciertos_laya/len(filas):.0f}%)')
+        print(f'  Clasificador: {aciertos_clasif}/{len(filas)} ({100*aciertos_clasif/len(filas):.0f}%)')
 
-    print(f'\nResultados completos guardados en: {ruta_salida}\n')
+    print(f'\nGuardado en: {ruta_salida}')
 
     nodo.destroy_node()
     rclpy.shutdown()
