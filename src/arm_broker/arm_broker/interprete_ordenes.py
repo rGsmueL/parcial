@@ -22,7 +22,7 @@ class InterpreteOrdenes(Node):
         super().__init__('interprete_ordenes')
 
         # Parámetros de ROS 2: se pasan con --ros-args -p nombre:=valor
-        self.declare_parameter('laya_url', 'http://127.0.0.1:8000')   # IP:puerto que da el docente
+        self.declare_parameter('laya_url', 'http://127.0.0.1:8000')   # IP:puerto predeterminado q es el local
         self.declare_parameter('timeout_laya_s', 2.0)                 # límite de espera a LAYA por defecto
         self.declare_parameter('objetos', ['cubo', 'cilindro', 'esfera'])
         self.declare_parameter('colores', ['rojo', 'verde', 'azul', 'amarillo'])

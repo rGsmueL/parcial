@@ -20,7 +20,7 @@ def _preguntas_tipadas(objetos, colores, acciones):
         },
         'objeto': {
             'type': 'choice',
-            'instructions': '¿Sobre qué objeto actúa la frase?',
+            'instructions': '¿De que forma del objeto se habla?',
             'criteria': list(objetos) + ['desconocido'],
         },
         'color': {
@@ -30,12 +30,12 @@ def _preguntas_tipadas(objetos, colores, acciones):
         },
         'prioridad': {
             'type': 'score',
-            'instructions': '¿Qué tan urgente suena la frase, del 0 (nada urgente) al 3 (máxima urgencia)?',
+            'instructions': '¿Qué tan urgente suena la frase, del 0 (nada urgente) al 3 (máxima urgencia) en entero?',
             'criteria': ['0', '1', '2', '3'],
         },
         'permitido': {
             'type': 'noul',
-            'instructions': '¿Es una orden segura y razonable de ejecutar sobre una mesa de trabajo real?',
+            'instructions': '¿Es una orden segura y razonable de ejecutar sobre una mesa de trabajo real respecto a un brazo robotico?',
         },
     }
 

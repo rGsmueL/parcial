@@ -92,7 +92,7 @@ tu PC y solo la transcripción sale a la nube.
 2. **Create API key** → copia la clave (empieza tipo `AIza…`).
 3. Ver modelos disponibles (opcional):
    ```powershell
-   curl.exe -s "https://generativelanguage.googleapis.com/v1beta/models?key=AIzaTU_CLAVE" | findstr name
+   curl.exe -s "https://generativelanguage.googleapis.com/v1beta/models?key=CLAVE_API" | findstr name
    ```
    Se usa un modelo multimodal rápido, p. ej. `gemini-2.5-flash` (si no
    aparece, usa el primero de la lista que soporte audio).
@@ -116,11 +116,35 @@ $body = @{
   )})
 } | ConvertTo-Json -Depth 10
 
-curl.exe -s -X POST `
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" `
-  -H "content-type: application/json" `
-  -H "x-goog-api-key: AIzaTU_CLAVE" `
-  -d $body
+
+#COMO EL ARCHIVO ES MUY LARGO SE YA NO USA curl.exe, SE REEMPLAZA POR:
+
+$apiKey = "API_KEY_PONER"
+
+$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+
+try {
+    $response = Invoke-RestMethod `
+        -Uri $url `
+        -Method Post `
+        -Headers @{
+            "x-goog-api-key" = $apiKey
+        } `
+        -ContentType "application/json; charset=utf-8" `
+        -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+
+    # Mostrar la transcripción
+    $response.candidates[0].content.parts |
+        ForEach-Object { $_.text }
+}
+catch {
+    Write-Host "Error al llamar a Gemini:"
+    Write-Host $_.Exception.Message
+
+    if ($_.ErrorDetails.Message) {
+        Write-Host $_.ErrorDetails.Message
+    }
+}
 ```
 
 La respuesta viene en `candidates[0].content.parts[0].text` — eso es la
@@ -135,7 +159,7 @@ import base64, json, os, requests
 clave = os.environ["GOOGLE_API_KEY"]
 audio = base64.b64encode(open("orden.wav", "rb").read()).decode()
 r = requests.post(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
     headers={"x-goog-api-key": clave, "content-type": "application/json"},
     json={"contents": [{"parts": [
         {"text": "Transcribe exactamente lo que se dice en español. Solo la transcripción."},
@@ -164,7 +188,7 @@ Es el **único nodo nuevo** de esta pregunta. Va dentro del paquete existente
 parámetros del nodo:
   fuerte:        'archivo' | 'microfono'        (default archivo)
   ruta_audio:    ruta a un .wav                 (modo archivo)
-  google_model:  'gemini-2.5-flash'
+  google_model:  'gemini-3.8-flash'
   timeout_transcripcion_s: 5.0                  ← SU tiempo límite
   modo_texto_tras_fallo: true                   ← cae a teclado si falla
 

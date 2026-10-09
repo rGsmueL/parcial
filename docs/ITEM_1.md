@@ -386,13 +386,13 @@ servidor saturado).
 
 ## 7. Checklist de la Pregunta 1
 
-1. [ ] PC: Python ≥3.10 → venv → `torch` CUDA → `pip install "laya[serve]"` (§4.2).
-2. [ ] PC: firewall :8000 (§4.4) y `laya-serve` con `0.0.0.0` + `LAYA_MODELS=multilingual` (§4.3).
-3. [ ] PC: `curl /health` OK y `probar_laya.py` muestra `answers.*` con campo reales (§4.5).
-4. [ ] Jetson: `colcon build` de `arm_broker_interfaces` + `arm_broker` (§5.1).
-5. [ ] Jetson: `interprete_ordenes` con `-p laya_url:=http://<IP_PC>:8000` (§5.3).
-6. [ ] `ros2 service call` normal y con `forzar_clasificador` (§5.4).
-7. [ ] Corte de red: demostrar `degradada=True` sin LAYA (§5.5).
-8. [ ] Anotar predicción de mediana/p95 **antes** de medir.
-9. [ ] `medir_item1.py` con las 8 frases → luego 50 frases, calma y carga (§6).
+1. [x] PC: Python ≥3.10 → venv → `torch` CUDA → `pip install "laya[serve]"` (§4.2).
+2. [x] PC: firewall :8000 (§4.4) y `laya-serve` con `0.0.0.0` + `LAYA_MODELS=multilingual` (§4.3).
+3. [x] PC: `curl /health` OK y `probar_laya.py` muestra `answers.*` con campo reales (§4.5).
+4. [x] Jetson: `colcon build` de `arm_broker_interfaces` + `arm_broker` (§5.1).
+5. [x] Jetson: `interprete_ordenes` con `-p laya_url:=http://<IP_PC>:8000` (§5.3).
+6. [x] `ros2 service call` normal y con `forzar_clasificador` (§5.4).
+7. [x] Corte de red: demostrar `degradada=True` sin LAYA (§5.5).
+8. [x] Anotar predicción de mediana/p95 **antes** de medir.
+9. [x] `medir_item1.py` con las 8 frases → luego 50 frases, calma y carga (§6).
 10. [ ] Tablas (latencia calma/carga + exactitud) y media página de comentarios.

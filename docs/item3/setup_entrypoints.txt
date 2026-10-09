@@ -1,0 +1,6 @@
+# Snippet para src/arm_broker/setup.py — Pregunta 3
+# Pega estas dos líneas dentro de la lista entry_points['console_scripts'],
+# justo debajo de la línea 'interprete_ordenes = arm_broker.interprete_ordenes:main',
+
+            'transcriptor_voz = arm_broker.transcriptor_voz:main',
+            'orquestador = arm_broker.orquestador:main',

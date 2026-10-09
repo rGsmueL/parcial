@@ -1,0 +1,72 @@
+""" Poses fijas (IK precalculada) del JetCobot para el agarre — Pregunta 2 """
+
+""" Sobre la mesa hay cuatro objetos en POSICIONES CONOCIDAS (dice el enunciado), por eso no se
+busca el objeto: la cámara solo confirma su color y la pose de agarre está precalculada.
+
+Las poses están en GRADOS (la convención del script probado con el kit,
+docs/agarrar_cubo_sin_rastreo.py) y se convierten a RADIANES para enviarlas al broker.
+Antes de la demo hay que verificar que pasan límites, workspace y paso con
+herramientas/verificar_poses.py """
+
+import math
+
+# 1. Poses base (grados, convención del kit)
+POSE_HOME = [0, 0, 0, 0, 0, -45]
+POSE_BUSQUEDA = [10.81, -25.57, 15.9, -72.33, 2.02, -32.69]
+POSE_RECOGIDA = [18.28, -36.65, -76.37, 10.45, -0.26, -22.76]
+POSE_REPARTO = [93.51, -4.04, -71.54, -12.83, -1.75, -36.29]
+
+# 2. Zonas de depósito por color (la "zona correcta" de cada objeto)
+DESTINOS = {
+    'amarillo': [65.12, -72.15, -8.87, -11.77, 5.18, -66.18],
+    'rojo': [80.15, -45.35, -61.78, 12.39, 5.27, -51.24],
+    'verde': [96.15, -35.15, -81.73, 23.37, 5.27, -36.56],
+    'azul': [113.29, -35.15, -81.73, 23.37, 5.27, -18.63],
+}
+
+
+def a_radianes(grados):
+    """Convierte una pose de 6 ángulos de grados a radianes (para el broker)"""
+    return [math.radians(v) for v in grados]
+
+
+def escalonar(q_desde_rad, q_hasta_rad, paso_max_rad):
+    """Trocea un movimiento en poses intermedias para que ningún salto articular entre metas
+    consecutivas supere paso_max_rad (el broker revalida el paso al ejecutar, y si nos pasamos
+    lo rechaza con causa 'paso'). Retorna la lista de metas intermedias, la última exactamente
+    en q_hasta_rad."""
+    if paso_max_rad is None or paso_max_rad <= 0:
+        return [list(q_hasta_rad)]
+
+    salto = max(abs(b - a) for a, b in zip(q_desde_rad, q_hasta_rad))
+    if salto <= paso_max_rad:
+        return [list(q_hasta_rad)]
+
+    n = max(2, int(math.ceil(salto / paso_max_rad)))
+    puntos = []
+    for k in range(1, n + 1):
+        f = k / n
+        puntos.append([a + (b - a) * f for a, b in zip(q_desde_rad, q_hasta_rad)])
+    return puntos
+
+
+def plan_pick_and_place(color):
+    """Plan de agarre y traslado para el color pedido.
+
+    Retorna una lista de pasos, cada uno ('pose', nombre, grados) o ('gripper', 'abrir'/'cerrar').
+    Las posiciones son conocidas; la pose de agarre es fija (POSE_RECOGIDA) y el destino cambia
+    según el color (DESTINOS)."""
+    color = (color or '').lower()
+    pasos = [
+        ('gripper', 'abrir'),
+        ('pose', 'busqueda', POSE_BUSQUEDA),
+        ('pose', 'recogida', POSE_RECOGIDA),
+        ('gripper', 'cerrar'),
+        ('pose', 'busqueda', POSE_BUSQUEDA),
+        ('pose', 'reparto', POSE_REPARTO),
+    ]
+    destino = DESTINOS.get(color)
+    if destino:
+        pasos.append(('pose', f'destino_{color}', destino))
+    pasos += [('gripper', 'abrir'), ('pose', 'home', POSE_HOME)]
+    return pasos

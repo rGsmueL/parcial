@@ -1,0 +1,13 @@
+# Snippet para src/arm_broker/setup.py — Pregunta 2
+# Pega estas tres líneas dentro de la lista entry_points['console_scripts'],
+# debajo de las líneas del ítem 3 (transcriptor_voz, orquestador).
+
+            'percepcion_camara = arm_broker.percepcion_camara:main',
+            'orquestador_item2 = arm_broker.orquestador_item2:main',
+            'cliente_texto = arm_broker.cliente_texto:main',
+
+# IMPORTANTE — orquestador de item3 vs item2
+# El 'orquestador = arm_broker.orquestador:main' del item3 era un andamiaje mínimo.
+# El definitivo es 'orquestador_item2'. Usa SOLO uno a la vez.
+# Opción limpia: reemplaza el archivo src/arm_broker/arm_broker/orquestador.py por
+# orquestador_item2.py y deja un único entry point 'orquestador'.
