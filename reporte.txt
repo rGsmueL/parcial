@@ -1,0 +1,14 @@
+jetson@yahboom:~/rb2_ws$ ros2 run arm_broker pinza_pymycobot --ros-args -p puerto:=/dev/ttyUSB0
+[INFO] [1791453615.820520896] [pinza_pymycobot]: pinza_pymycobot lista · acción=gripper_command · puerto=/dev/ttyUSB0 · escala 0..100 (abrir=100, cerrar=15)
+[ERROR] [1791453616.652027520] [pinza_pymycobot]: Error raised in execute callback: 'GripperCommand_Goal' object has no attribute 'position'
+Traceback (most recent call last):
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/action/server.py", line 333, in _execute_goal
+    execute_result = await await_or_execute(execute_callback, goal_handle)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 107, in await_or_execute
+    return callback(*args)
+  File "/home/jetson/rb2_ws/install/arm_broker/lib/python3.10/site-packages/arm_broker/pinza_pymycobot.py", line 95, in _execute_callback
+    posicion = float(goal_handle.request.position)   # 0..100 (escala del kit)
+AttributeError: 'GripperCommand_Goal' object has no attribute 'position'
+[WARN] [1791453616.653841120] [pinza_pymycobot]: Goal state not set, assuming aborted. Goal ID: [ 22  14  53 119 171 143  65 206 138 137 174  46  87  33 159 101]
+
+

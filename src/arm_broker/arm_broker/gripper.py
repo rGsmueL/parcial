@@ -66,8 +66,10 @@ class Pinza:
                     f"para demostrar el resto de la cadena sin bloquear cada intento aquí.")
             return False
         goal = GripperCommand.Goal()
-        goal.position = float(posicion)
-        goal.max_effort = self.esfuerzo
+        # ROS 2: el Goal no tiene 'position' directo; va dentro de 'command'
+        # (control_msgs/msg/GripperCommand => position + max_effort)
+        goal.command.position = float(posicion)
+        goal.command.max_effort = self.esfuerzo
         envio = self.cli.send_goal_async(goal)
         handle = self._esperar(envio, self.timeout)
         if handle is None or not handle.accepted:

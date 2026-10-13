@@ -98,7 +98,7 @@ ros2 run arm_broker broker --ros-args \
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_PC>:8000
 
 # T4 — percepción (publica /objeto_detectado)
-ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/camera/image_raw
+ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw
 
 # T5 — orquestador del Item 2
 ros2 run arm_broker orquestador_item2 --ros-args \

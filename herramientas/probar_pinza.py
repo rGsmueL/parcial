@@ -42,8 +42,9 @@ class ProbarPinza(Node):
             self.get_logger().error('la acción de la pinza no aparece')
             return
         goal = GripperCommand.Goal()
-        goal.position = posicion
-        goal.max_effort = float(self.get_parameter('esfuerzo').value)
+        # ROS 2: el Goal no tiene 'position' directo; va dentro de 'command'
+        goal.command.position = posicion
+        goal.command.max_effort = float(self.get_parameter('esfuerzo').value)
         handle = self._esperar(self.cli.send_goal_async(goal))
         if handle is None or not handle.accepted:
             self.get_logger().warn('goal rechazado')
