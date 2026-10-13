@@ -4,13 +4,15 @@
 ninguna transición del plan de agarre supera el paso_max_rad del broker (si lo supera, el
 orquestador la trocea con waypoints, pero conviene saberlo).
 
+Con las 4 posiciones (ver zonas.py) hay una pose de agarre por POSICIÓN (RECOGIDAS[1..4]); el
+plan de agarre depende del slot y el de transporte del color.
+
 Uso (desde la raíz del repo):
     python herramientas/verificar_poses.py
     python herramientas/verificar_poses.py --paso-max 1.6
 """
 
 import argparse
-import math
 import os
 import sys
 
@@ -40,6 +42,19 @@ def paso(a, b):
     return max(abs(x - y) for x, y in zip(P.a_radianes(a), P.a_radianes(b)))
 
 
+def _transiciones(plan, paso_max):
+    """Imprime los saltos entre poses consecutivas de una lista [(nombre, grados), ...]."""
+    for (n1, g1), (n2, g2) in zip(plan, plan[1:]):
+        p = paso(g1, g2)
+        print(f'  {n1:16s} -> {n2:16s} paso={p:5.2f} rad'
+              + ('  (> paso_max: se trocea con waypoints)' if p > paso_max else ''))
+
+
+def poses_de_plan(pasos):
+    """Extrae las poses (nombre, grados) de las tuplas ('pose', nombre, grados) de un plan."""
+    return [(resto[0], resto[1]) for tipo, *resto in pasos if tipo == 'pose']
+
+
 def main():
     ap = argparse.ArgumentParser(description='Verifica poses fijas con la FK del RB-2')
     ap.add_argument('--paso-max', type=float, default=1.6, dest='paso_max',
@@ -50,22 +65,25 @@ def main():
     todas_ok = True
     todas_ok &= revisar_pose('HOME', P.POSE_HOME)
     todas_ok &= revisar_pose('BUSQUEDA', P.POSE_BUSQUEDA)
-    todas_ok &= revisar_pose('RECOGIDA', P.POSE_RECOGIDA)
+    for slot in sorted(P.RECOGIDAS):
+        todas_ok &= revisar_pose(f'RECOGIDA_{slot}', P.RECOGIDAS[slot])
     todas_ok &= revisar_pose('REPARTO', P.POSE_REPARTO)
     for color, grados in P.DESTINOS.items():
         todas_ok &= revisar_pose(f'DESTINO_{color}', grados)
 
-    print(f'\n== Transiciones del plan (paso_max={args.paso_max}) ==')
+    print(f'\n== Transiciones de AGARRE por posición (paso_max={args.paso_max}) ==')
+    for slot in sorted(P.RECOGIDAS):
+        print(f'-- slot {slot} --')
+        # busqueda -> recogida[slot] -> busqueda
+        plan = poses_de_plan(P.plan_agarrar(slot))
+        _transiciones(plan, args.paso_max)
+
+    print(f'\n== Transiciones de TRANSPORTE por color (paso_max={args.paso_max}) ==')
     for color in P.DESTINOS:
         print(f'-- color {color} --')
-        plan = []
-        for tipo, *resto in P.plan_pick_and_place(color):
-            if tipo == 'pose':
-                plan.append((resto[0], resto[1]))
-        for (n1, g1), (n2, g2) in zip(plan, plan[1:]):
-            p = paso(g1, g2)
-            print(f'  {n1:16s} -> {n2:16s} paso={p:5.2f} rad'
-                  + ('  (> paso_max: se trocea con waypoints)' if p > args.paso_max else ''))
+        # busqueda -> reparto -> destino -> home
+        plan = [('busqueda', P.POSE_BUSQUEDA)] + poses_de_plan(P.plan_transportar(color))
+        _transiciones(plan, args.paso_max)
 
     return 0 if todas_ok else 1
 

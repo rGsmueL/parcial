@@ -40,10 +40,12 @@ ros2 run jetcobot_driver sync_plan_nx
 ```
 
 ### T3 — Broker (único publicador de `/joint_states`)
+
+El \ solo indica que se continua abajo porque la longitud del comando es muy larga
 ```bash
 ros2 run arm_broker broker --ros-args \
   -p politica:=prioridad -p tau_envejecimiento_s:=12.0 \
-  -p paso_max_rad:=1.6 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1
+  -p paso_max_rad:=2.0 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1
 ```
 
 ### T4 — Nodo de pinza (expone la acción `gripper_command`)
@@ -52,23 +54,33 @@ ros2 run arm_broker pinza_pymycobot --ros-args -p puerto:=/dev/ttyUSB0
 ```
 > Compite por el puerto serie con el driver (T2). Si falla, ver sección "Pinza no se mueve".
 
-### T5 — Percepción de cámara
+### T5 — Percepción de cámara (detecta el color en las 4 posiciones)
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw
 ```
+> Publica `/objeto_detectado` con el mapa `{slot: color}` de las 4 posiciones (ver `zonas.py`).
 
-### T6 — Orquestador (P2)
+### T6 — Orquestador 
 ```bash
 ros2 run arm_broker orquestador_item2 --ros-args \
   -p escala_prioridad:=85 -p paso_max_rad:=1.6 -p usar_camara:=true \
-  -p gripper_abierto:=100 -p gripper_cerrado:=15 -p gripper_timeout_s:=5.0
+  -p usar_zonas:=true \
+  -p gripper_abierto:=100.0 -p gripper_cerrado:=15.0 -p gripper_timeout_s:=5.0
 ```
+Con `-p usar_zonas:=true` (por defecto) resuelve en qué de las 4 posiciones está el color pedido;
+si el color no está en ninguna, rechaza con causa `color_no_encontrado`. Para volver al
+comportamiento viejo de pose única, `-p usar_zonas:=false`.
 Sin pinza física, añade: `-p gripper_habilitada:=false`
+### T7— Interprete de ordenes
+```bash
+ros2 run arm_broker interprete_ordenes --ros-args \
+  -p laya_url:=http://<IP_PC>:8000 -p timeout_laya_s:=3.0
+```
 
-### T7 — Cliente (una terminal por persona)
+### T8 — Cliente (una terminal por persona)
 ```bash
 ros2 run arm_broker cliente_texto --ros-args \
-  -r __node:=cliente_ana -p client_id:=ana -p n_ordenes:=0
+  -r __node:=cliente_1 -p client_id:="nombre" -p n_ordenes:=0
 ```
 Cambia `__node`/`client_id` por persona (`cliente_luis`/`luis`). Ordenes: `agarra el cubo rojo`,
 `suelta`, `mueve el cubo azul`, `detener`.

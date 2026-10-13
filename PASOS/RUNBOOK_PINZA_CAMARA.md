@@ -38,6 +38,8 @@ Y registrado en `src/arm_broker/setup.py` (`console_scripts`):
 
 ### 0.3 Cámara
 El default del nodo ya es `/image_raw`. **No** pases `-p topico_imagen:=/camera/image_raw`.
+`percepcion_camara` detecta el color en las **4 posiciones** del espacio delimitado (ROIs de
+`src/arm_broker/arm_broker/zonas.py`) y publica el mapa `{slot: color}` en `/objeto_detectado`.
 
 ---
 
@@ -90,7 +92,7 @@ ros2 run arm_broker pinza_pymycobot --ros-args -p puerto:=/dev/ttyUSB0
 ```
 ⚠️ Compite por el puerto serie con el driver (T2). Ver §5.
 
-### T5 — Percepción de cámara
+### T5 — Percepción de cámara (mapa de las 4 posiciones)
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw
 ```
@@ -104,8 +106,11 @@ ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_PC>:80
 ```bash
 ros2 run arm_broker orquestador_item2 --ros-args \
   -p escala_prioridad:=85 -p paso_max_rad:=1.6 -p usar_camara:=true \
+  -p usar_zonas:=true \
   -p gripper_abierto:=100 -p gripper_cerrado:=15 -p gripper_timeout_s:=5.0
 ```
+> `usar_zonas:=true` (por defecto): agarra en la posición donde la cámara vio el color pedido;
+> color ausente → rechazo `color_no_encontrado`. Con `-p usar_zonas:=false` vuelve a la pose única.
 Sin pinza física (demo sin hardware de pinza), añade:
 ```bash
   -p gripper_habilitada:=false
@@ -134,6 +139,8 @@ python3 analisis/verificar_publicadores.py --salida evidencia/publicadores.txt  
 ```
 
 `percepcion_camara` también arranca sin argumentos (su default ya es `/image_raw`).
+`ros2 topic echo /objeto_detectado --once` debe mostrar `por_slot` con el color de cada una de
+las 4 posiciones (y `null` donde no haya cubo).
 
 ---
 

@@ -1,21 +1,26 @@
 """ Nodo de percepción por color de la cámara — Pregunta 2 """
 
-""" usb_cam publica sensor_msgs/Image en el tópico de imagen (por defecto /camera/image_raw,
-pero OJO: usb_cam_node_exe publica en /image_raw relativo si no se le remapea con -r __ns:=/camera
-o -r image_raw:=/camera/image_raw; confirmar con `ros2 topic info <topico> -v` antes de asumir).
-Este nodo lo suscribe, convierte el fotograma con cv_bridge a OpenCV y detecta el color del
-objeto por HSV (misma lógica que docs/agarrar_cubo_sin_rastreo.py). SOLO publica la detección
-por un tópico: no mueve el brazo.
+""" usb_cam publica sensor_msgs/Image en el tópico de imagen (por defecto /image_raw). Este nodo
+lo suscribe, convierte el fotograma con cv_bridge a OpenCV y detecta el color de CADA UNA de las
+4 posiciones (las ROIs de zonas.py). Con eso arma un MAPA {slot: color} que es lo que permite
+"encontrar" el color pedido, sin importar en qué esquina esté.
 
 Salida: /objeto_detectado (std_msgs/String, JSON) con
-    {color, presente, estable, cx, cy, t}
+    {color, presente, estable, cx, cy, t, por_slot, detecciones}
+donde:
+    - 'color'      : color dominante (la mancha más grande de la imagen), por compatibilidad.
+    - 'presente'   : hay algún color.
+    - 'estable'    : el MAPA COMPLETO {slot: color} se repitió 'confirmaciones' fotogramas.
+    - 'por_slot'   : {"1": "rojo", "2": null, ...} -> el color visto en cada posición.
+    - 'detecciones': lista con {slot, color, area, cx, cy} (cx,cy en coordenadas de la imagen).
 
-Este nodo es deliberadamente silencioso frame a frame (publicar a 20-30 Hz con un log por
-frame inundaría la terminal). Para que SÍ se note cuando algo anda mal, trae dos avisos:
+Este nodo SOLO publica la detección: no mueve el brazo.
+
+Trae dos avisos útiles:
   - un watchdog que avisa si no llega ninguna imagen en 'watchdog_s' segundos (típico cuando
     'topico_imagen' no coincide con lo que usb_cam realmente publica), y
-  - un log (no un print silencioso) cada vez que la detección "estable" cambia de color,
-    para ver en vivo que sí está viendo la mesa sin inundar la consola. """
+  - un log (no un print por frame) cada vez que el mapa estable cambia, para ver en vivo que
+    sí está viendo la mesa sin inundar la consola. """
 
 import json
 import time
@@ -27,6 +32,11 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
+
+try:
+    from arm_broker import zonas
+except ImportError:                      # por si se ejecuta suelto desde la carpeta del paquete
+    import zonas
 
 
 # Rangos HSV de cada color sobre la mesa (los del script probado con el kit)
@@ -56,9 +66,9 @@ class PercepcionCamara(Node):
         self.log_periodico_s = float(self.get_parameter('log_estado_periodico_s').value)
 
         self.bridge = CvBridge()
-        self.ultimo_color = None
+        self.ultimo_mapa = None            # clave del último mapa visto (para contar la racha)
         self.racha = 0
-        self.estable_anterior = False
+        self.mapa_estable_anterior = None
         self.n_frames = 0
         self.ultima_imagen_t = None       # None = todavía no llegó ninguna imagen
         self._watchdog_avisado = False
@@ -72,9 +82,11 @@ class PercepcionCamara(Node):
         self.create_timer(1.0, self._chequear_watchdog)
 
         self.get_logger().info('=' * 60)
-        self.get_logger().info('  PERCEPCION_CAMARA LISTO')
+        self.get_logger().info('  PERCEPCION_CAMARA LISTO (deteccion por 4 zonas)')
         self.get_logger().info(f'  imagen : {self.get_parameter("topico_imagen").value}')
         self.get_logger().info(f'  salida : {self.get_parameter("topico_salida").value}')
+        for slot, z in zonas.ZONAS.items():
+            self.get_logger().info(f'  slot {slot}: roi={z["roi"]}')
         self.get_logger().info('=' * 60)
 
     def _chequear_watchdog(self):
@@ -89,8 +101,7 @@ class PercepcionCamara(Node):
                     f'⚠️  no llegó NINGUNA imagen en {topico} tras {self.watchdog_s:.0f}s. '
                     f'Verifica con: ros2 topic list | grep -i image  ·  ros2 topic hz {topico}  '
                     f'·  ros2 topic info {topico} -v. '
-                    f'(usb_cam_node_exe publica por defecto en /image_raw, NO en /camera/image_raw, '
-                    f'salvo que lo remapees con -r __ns:=/camera)')
+                    f'(usb_cam_node_exe publica por defecto en /image_raw)')
             return
         # Ya llegaron imágenes alguna vez: avisar si el flujo se cortó
         if ahora - self.ultima_imagen_t > self.watchdog_s:
@@ -100,32 +111,57 @@ class PercepcionCamara(Node):
                 throttle_duration_sec=self.watchdog_s)
 
     def _detectar(self, cv_img):
-        """Devuelve (color, cx, cy) del manchón de color más grande, o (None, 0, 0)"""
+        """Detecta el color dentro de cada ROI de zonas.py.
+
+        Devuelve (por_slot, detalle):
+          por_slot = {slot: color}  (color None si no hay cubo en esa posición)
+          detalle  = {slot: {color, area, cx, cy}} con cx,cy en coordenadas de la imagen."""
+        alto, ancho = cv_img.shape[:2]
         hsv = cv.cvtColor(cv_img, cv.COLOR_BGR2HSV)
         kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-        mejor_color, mejor_area, mejor_centro = None, self.area_min, None
 
-        for nombre, rangos in COLORES_HSV.items():
-            mascara = None
-            for bajo, alto in rangos:
-                m = cv.inRange(hsv, np.array(bajo), np.array(alto))
-                mascara = m if mascara is None else cv.bitwise_or(mascara, m)
-            mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
-            contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            if not contornos:
-                continue
-            c = max(contornos, key=cv.contourArea)
-            area = cv.contourArea(c)
-            if area > mejor_area:
-                m = cv.moments(c)
-                if m['m00'] != 0:
-                    mejor_area = area
-                    mejor_color = nombre
-                    mejor_centro = (int(m['m10'] / m['m00']), int(m['m01'] / m['m00']))
+        por_slot = {}
+        detalle = {}
 
-        if mejor_centro is None:
-            return None, 0, 0
-        return mejor_color, mejor_centro[0], mejor_centro[1]
+        for slot, z in zonas.ZONAS.items():
+            x1, y1, x2, y2 = zonas.escalar_roi(z['roi'], ancho, alto)
+            x1 = max(0, min(ancho - 1, x1))
+            y1 = max(0, min(alto - 1, y1))
+            x2 = max(0, min(ancho, x2))
+            y2 = max(0, min(alto, y2))
+            roi = hsv[y1:y2, x1:x2]
+
+            mejor_color, mejor_area, mejor_centro = None, self.area_min, None
+            if roi.size:
+                for nombre, rangos in COLORES_HSV.items():
+                    mascara = None
+                    for bajo, alto_hsv in rangos:
+                        m = cv.inRange(roi, np.array(bajo), np.array(alto_hsv))
+                        mascara = m if mascara is None else cv.bitwise_or(mascara, m)
+                    mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
+                    contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL,
+                                                   cv.CHAIN_APPROX_SIMPLE)
+                    if not contornos:
+                        continue
+                    c = max(contornos, key=cv.contourArea)
+                    area = cv.contourArea(c)
+                    if area > mejor_area:
+                        mo = cv.moments(c)
+                        if mo['m00'] != 0:
+                            mejor_area = area
+                            mejor_color = nombre
+                            mejor_centro = (int(mo['m10'] / mo['m00']),
+                                            int(mo['m01'] / mo['m00']))
+
+            por_slot[slot] = mejor_color
+            detalle[slot] = {
+                'color': mejor_color,
+                'area': int(mejor_area) if mejor_color else 0,
+                'cx': (x1 + mejor_centro[0]) if mejor_centro else 0,
+                'cy': (y1 + mejor_centro[1]) if mejor_centro else 0,
+            }
+
+        return por_slot, detalle
 
     def _on_imagen(self, msg):
         # Se marca la llegada de ESTA imagen de inmediato: así el watchdog ya no se queja
@@ -143,35 +179,39 @@ class PercepcionCamara(Node):
             self.get_logger().warn(f'no pude convertir la imagen: {e!r}', throttle_duration_sec=2.0)
             return
 
-        color, cx, cy = self._detectar(cv_img)
+        por_slot, detalle = self._detectar(cv_img)
 
-        # Se cuenta la racha de fotogramas con el mismo color para declararlo "estable"
-        if color is not None and color == self.ultimo_color:
-            self.racha += 1
-        elif color is not None:
-            self.ultimo_color = color
-            self.racha = 1
+        # Color dominante global (la mancha más grande), por compatibilidad con el formato viejo.
+        mejor_slot = max(detalle, key=lambda s: detalle[s]['area'], default=None)
+        if mejor_slot is not None and detalle[mejor_slot]['color']:
+            color = detalle[mejor_slot]['color']
+            cx, cy = detalle[mejor_slot]['cx'], detalle[mejor_slot]['cy']
         else:
-            self.ultimo_color = None
-            self.racha = 0
+            color, cx, cy = None, 0, 0
+
+        # Se cuenta la racha de fotogramas con el MISMO MAPA completo {slot: color}.
+        mapa_key = tuple((s, por_slot[s]) for s in sorted(por_slot))
+        if mapa_key == self.ultimo_mapa:
+            self.racha += 1
+        else:
+            self.ultimo_mapa = mapa_key
+            self.racha = 1
 
         estable = self.racha >= self.confirmaciones
 
-        # Log de TRANSICIÓN (no de cada frame): se ve en la terminal cada vez que la cámara
-        # empieza o deja de confirmar un color de forma estable. Es lo que orquestador_item2
-        # está esperando en _esperar_deteccion, así que es la señal más útil para depurar.
-        if estable != self.estable_anterior:
-            if estable:
-                self.get_logger().info(f'🎯 color ESTABLE confirmado: {color} (cx={cx}, cy={cy})')
-            else:
-                self.get_logger().info('…ya no hay color estable sobre la mesa')
-            self.estable_anterior = estable
+        # Log de TRANSICIÓN (no de cada frame): se ve en la terminal cada vez que el mapa
+        # estable cambia. Es lo que orquestador_item2 está esperando.
+        if estable and mapa_key != self.mapa_estable_anterior:
+            self.mapa_estable_anterior = mapa_key
+            self.get_logger().info(f'🎯 mapa ESTABLE: {por_slot}  ({detalle})')
+        elif not estable and self.mapa_estable_anterior is not None and self.racha == 1:
+            self.get_logger().info(f'… mapa inestable: {por_slot}')
+            self.mapa_estable_anterior = None
 
-        # Log periódico opcional (apagado por defecto): útil para ver que el nodo sigue vivo
-        # y qué está viendo, sin esperar a una transición.
+        # Log periódico opcional (apagado por defecto): útil para ver que el nodo sigue vivo.
         if self.log_periodico_s > 0:
             self.get_logger().info(
-                f'estado: color={color} presente={color is not None} estable={estable}',
+                f'estado: por_slot={por_slot} estable={estable}',
                 throttle_duration_sec=self.log_periodico_s)
 
         salida = String()
@@ -182,6 +222,8 @@ class PercepcionCamara(Node):
             'cx': int(cx),
             'cy': int(cy),
             't': time.time(),
+            'por_slot': {str(s): por_slot[s] for s in por_slot},
+            'detecciones': [dict(slot=s, **detalle[s]) for s in detalle],
         })
         self.pub.publish(salida)
 
@@ -201,4 +243,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-

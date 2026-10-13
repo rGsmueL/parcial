@@ -397,19 +397,27 @@ Detalles relevantes:
   traza sin esperar → llena la cola (es la carga que hace decidir a la política).
 - **Nunca publica `/joint_states`**; solo envía goals a `move_arm`.
 
-### 5.8 `percepcion_camara.py` — Detección de color (P2)
+### 5.8 `percepcion_camara.py` — Detección de color por posición (P2)
 
 - Suscribe `sensor_msgs/Image` (`/image_raw`, de `usb_cam`), convierte con
-  `cv_bridge`, umbraliza por **HSV** (`COLORES_HSV` para rojo/amarillo/verde/azul),
-  elige el mayor contorno (`area_min`) y marca `estable` tras `confirmaciones`
-  fotogramas iguales.
+  `cv_bridge`, umbraliza por **HSV** (`COLORES_HSV` para rojo/amarillo/verde/azul)
+  y, para **cada una de las 4 ROIs** de `zonas.py`, elige el mayor contorno
+  (`area_min`).
 - Publica `std_msgs/String` JSON en `/objeto_detectado`:
-  `{color, presente, estable, cx, cy, t}`. **No mueve el brazo.**
+  `{color, presente, estable, cx, cy, t, por_slot, detecciones}`:
+  - `por_slot` es el **mapa `{slot: color}`** de las 4 posiciones (`null` = sin cubo).
+  - `color`/`cx`/`cy` = color dominante (la mancha mayor), por compatibilidad.
+  - `estable` = el **mapa completo** se repitió `confirmaciones` fotogramas seguidos.
+- Las ROIs se midieron a 640×480 y se reescalan a la resolución real con
+  `zonas.escalar_roi()`. Incluye watchdog (avisa si no llegan imágenes). **No mueve
+  el brazo.**
 
 ### 5.9 `orquestador_item2.py` — Orquestador definitivo (P2)
 
 Puente decisión → broker. **No publica `/joint_states`** (solo lee para el error
 FK; como el broker publica en grados, él convierte a radianes al leer, `_on_joint_states`).
+Antes de agarrar **resuelve en qué de las 4 posiciones** (mapa de la cámara) está
+el color pedido; si no está en ninguna, rechaza con `color_no_encontrado`.
 
 - Suscribe `/orden_decidida` (decisiones JSON) y `/objeto_detectado`; acción
   `move_arm` (`ActionClient`) y `gripper_command` (`Pinza`).
@@ -421,15 +429,20 @@ FK; como el broker publica en grados, él convierte a radianes al leer, `_on_joi
   3. Acción no reconocida con color → se comporta como `mover`; sin color →
      rechazo `objeto_desconocido`.
   4. Para `agarrar`/`mover`/`llevar` → **mueve primero a `POSE_BUSQUEDA`**
-     (espacio de detección) y, si `usar_camara`, espera `/objeto_detectado` con el
-     color estable (`espera_deteccion_s`); si no, rechazo `sin_deteccion`.
+     (espacio de detección) y, si `usar_camara` y `usar_zonas`, espera
+     `/objeto_detectado` con el **mapa `{slot: color}` estable**
+     (`espera_deteccion_s`) y resuelve **en qué posición** está el color pedido.
+     Si el color no aparece en ninguna de las 4 → rechazo **`color_no_encontrado`**.
+     Con `usar_zonas=false` cae al modo viejo (pose única) y el rechazo es
+     `sin_deteccion`.
   5. `priority = prioridad * escala_prioridad (85)`, acotado a `0..255`.
-  6. Ejecuta el plan (`poses.plan_agarrar`, `plan_soltar`, `plan_pick_and_place`),
-     troceando movimientos con `poses.escalonar` (≤ `paso_max_rad`) y comandando
-     la pinza entre poses.
-  7. Registra el intento y el **error FK** con `intentos`.
+  6. Ejecuta el plan (`poses.plan_agarrar(slot)`, `plan_soltar`,
+     `plan_pick_and_place(color, slot)`), troceando movimientos con
+     `poses.escalonar` (≤ `paso_max_rad`) y comandando la pinza entre poses.
+  7. Registra el intento (`zona = slot<N>_<color>`) y el **error FK** con `intentos`.
 - Parámetros: `client_id` (`p2`), `escala_prioridad` (85), `paso_max_rad` (1.6),
-  `usar_camara` (true), `espera_deteccion_s` (3.0), `timeout_goal_s` (30.0),
+  `usar_camara` (true), `usar_zonas` (true), `espera_deteccion_s` (3.0),
+  `timeout_goal_s` (30.0),
   `gripper_action` (`gripper_command`), `gripper_abierto` (0.0),
   `gripper_cerrado` (0.04), `gripper_esfuerzo` (50.0), `topico_decision`
   (`orden_decidida`), `topico_deteccion` (`objeto_detectado`), `archivo_rechazos`
@@ -438,32 +451,51 @@ FK; como el broker publica en grados, él convierte a radianes al leer, `_on_joi
 ### 5.10 `poses.py` — Poses fijas / IK precalculada (P2)
 
 - Poses en **grados** (convención del kit) y conversión a radianes: `POSE_HOME`,
-  `POSE_BUSQUEDA`, `POSE_RECOGIDA`, `POSE_REPARTO` y `DESTINOS` por color
-  (amarillo/rojo/verde/azul).
-- `a_radianes(grados)`, `escalonar(q_desde, q_hasta, paso_max)` (trocea en
-  waypoints para que cada salto ≤ paso_max).
-- Planes: `plan_agarrar()` (abrir → recogida → cerrar; **sin** `busqueda`, que ya
-  la hizo el orquestador antes de detectar), `plan_soltar(color)`,
-  `plan_pick_and_place(color)` (lista de pasos `('gripper','abrir'|'cerrar')` o
-  `('pose', nombre, grados)`).
-- Las posiciones son **conocidas** (no se busca el objeto; la cámara solo confirma
-  color). Verificar con `herramientas/verificar_poses.py` antes de la demo.
+  `POSE_BUSQUEDA` (viene de `zonas.py`), `RECOGIDAS[1..4]` (**una pose de agarre por
+  posición**), `POSE_REPARTO` y `DESTINOS` por color (amarillo/rojo/verde/azul).
+  `POSE_RECOGIDA` (pose única del centro) se conserva como *legacy* para
+  `usar_zonas=false`.
+- `recogida(slot)` devuelve la pose de agarre de esa posición (o la *legacy* si el
+  slot es desconocido). `a_radianes(grados)`, `escalonar(q_desde, q_hasta, paso_max)`
+  (trocea en waypoints para que cada salto ≤ paso_max).
+- Planes: `plan_agarrar(slot)` (abrir → `RECOGIDAS[slot]` → cerrar; **sin**
+  `busqueda`, que ya la hizo el orquestador antes de detectar), `plan_soltar()`,
+  `plan_pick_and_place(color, slot)` (lista de pasos
+  `('gripper','abrir'|'cerrar')` o `('pose', nombre, grados)`).
+- Las posiciones son **conocidas** (no se localiza el objeto en 3D: la cámara
+  resuelve *en cuál de las 4 esquinas* está el color y aquí está la pose fija de esa
+  esquina). Verificar con `herramientas/verificar_poses.py` antes de la demo.
 
-### 5.11 `gripper.py` — Pinza (P2)
+### 5.11 `zonas.py` — Posiciones del espacio delimitado (P2)
+
+- **Fuente única de verdad** de las 4 posiciones: `ZONAS = {slot: {'roi', 'recogida'}}`.
+  - `slot` = 1..4 (arriba-izq, arriba-der, abajo-izq, abajo-der tal como se ven en la
+    imagen de la cámara).
+  - `'roi'` = rectángulo `(x1,y1,x2,y2)` en píxeles de la referencia `ANCHO_REF×ALTO_REF`
+    (640×480).
+  - `'recogida'` = pose de agarre de esa posición, en grados.
+- `ANCHO_REF`/`ALTO_REF`, `POSE_BUSQUEDA` (vista global del tapete, con la que se
+  midieron las ROIs), `escalar_roi(roi, ancho, alto)` (adapta las ROIs a la resolución
+  real) y `recogida(slot)`.
+- El **número de slot es el contrato** entre visión (`percepcion_camara` publica
+  `por_slot`) y movimiento (`poses`/`orquestador` agarra en `RECOGIDAS[slot]`). Mover
+  las esquinas = tocar **solo** este archivo.
+
+### 5.12 `gripper.py` — Pinza (P2)
 
 - Envoltura de un `ActionClient` a `control_msgs/action/GripperCommand`.
 - `Pinza(nodo, accion, abierto, cerrado, esfuerzo, timeout)` con `abrir()`,
   `cerrar()`, `disponible()`; usa espera por evento (seguro con
   `MultiThreadedExecutor`). Calibrar con `herramientas/probar_pinza.py`.
 
-### 5.12 `intentos.py` — Registro de intentos y error FK (P2)
+### 5.13 `intentos.py` — Registro de intentos y error FK (P2)
 
 - `CABECERA = [intento, frase, objeto, color, zona, exito, q_solicitada,
   q_alcanzada, error_mm]`.
 - `error_mm(q_sol, q_alc) = ‖fk(q_sol) − fk(q_alc)‖` (mm).
 - `preparar_csv`, `registrar`, `tasa_exito` (exitos/total).
 
-### 5.13 `transcriptor_voz.py` — Audio → decisión (P3)
+### 5.14 `transcriptor_voz.py` — Audio → decisión (P3)
 
 - Parámetros: `fuente` (`archivo`|`teclado`), `ruta_audio`, `google_model`
   (default `voz_google.MODELO_POR_DEFECTO`), `timeout_transcripcion_s` (5.0),
@@ -475,7 +507,7 @@ FK; como el broker publica en grados, él convierte a radianes al leer, `_on_joi
   `/orden_decidida` y registra en CSV
   (`t_unix, ruta_audio, texto, metodo, t_tr, t_dec, t0..t3`).
 
-### 5.14 `voz_google.py` — Cliente HTTP a Google AI Studio (P3)
+### 5.15 `voz_google.py` — Cliente HTTP a Google AI Studio (P3)
 
 - `MODELO_POR_DEFECTO = 'gemini-3.8-flash'` (**inconsistente** con docs/PASOS que
   usan `gemini-2.5-flash`, ver §12).
@@ -484,13 +516,13 @@ FK; como el broker publica en grados, él convierte a radianes al leer, `_on_joi
   `inline_data` base64; extrae `candidates[0].content.parts[*].text`.
 - `clave_desde_entorno()` lee `GOOGLE_API_KEY`; soporta `.wav/.mp3/.m4a/.aac/…`.
 
-### 5.15 `cliente_texto.py` — Frase por teclado (P2)
+### 5.16 `cliente_texto.py` — Frase por teclado (P2)
 
 - `input()` → `/interpretar_orden` → publica la decisión JSON en `/orden_decidida`
   (con `client_id`). Permite que los 4 integrantes manden órdenes en paralelo sin
   voz. Parámetros: `client_id`, `n_ordenes` (≤0 = infinito), `topico_decision`.
 
-### 5.16 `orquestador.py` — Orquestador mínimo (NO registrado)
+### 5.17 `orquestador.py` — Orquestador mínimo (NO registrado)
 
 - Versión mínima de la P2/P3: escucha `/orden_decidida`, rechaza `no_permitida`/
   objeto desconocido, elige pose por color (parámetro `mapa_poses`, placeholder) y
@@ -526,7 +558,7 @@ Convención de `metricas.py`: **prioridad mayor = más urgente**, por lo que el
 | `simular_corrida.py` | Simulador por eventos usando `politicas.py` tal cual; predice esperas, p95, inanición y Jain → `prediccion.md`. | **Antes de medir** |
 | `validar_rechazos.py` | Demuestra las 3 causas (`limite`, `workspace`, `paso`) y comprueba que quedan en `rechazos.csv`. | Con el broker arriba |
 | `verificar_fk.py` | En la **Jetson con `pymycobot`** (sin driver): 4 poses, `fk(q)` vs `get_coords()`, criterio ≤ 10 mm. | Antes de la demo |
-| `verificar_poses.py` | Valida las poses del orquestador con `fk.py` **sin mover el brazo**; marca saltos > `--paso-max`. | Antes de la demo |
+| `verificar_poses.py` | Valida las poses del orquestador con `fk.py` **sin mover el brazo**: HOME, búsqueda, las **4 recogidas** (`RECOGIDAS[1..4]`) y destinos; marca saltos > `--paso-max`. | Antes de la demo |
 | `probar_camara.py` | Prueba la cámara por OpenCV **sin ROS 2**; `--guardar frame.png`. | Antes de la demo |
 | `probar_pinza.py` | Abre/cierra la pinza para calibrar `abierto/cerrado/esfuerzo` (driver arriba). | Antes de la demo |
 | `probar_transcripcion.py` | Prueba la transcripción de un `.wav` **sin ROS 2**. | Antes de la demo P3 |
@@ -659,9 +691,9 @@ ros2 run arm_broker broker --ros-args \
   -p politica:=prioridad -p tau_envejecimiento_s:=12.0 \
   -p paso_max_rad:=1.6 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_PC>:8000
-ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw
+ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw   # detecta las 4 zonas
 ros2 run arm_broker orquestador_item2 --ros-args \
-  -p escala_prioridad:=85 -p paso_max_rad:=1.6 -p usar_camara:=true
+  -p escala_prioridad:=85 -p paso_max_rad:=1.6 -p usar_camara:=true -p usar_zonas:=true
 ros2 run arm_broker cliente_texto --ros-args -r __node:=cliente_<nombre> \
   -p client_id:=<nombre> -p n_ordenes:=0
 ```
@@ -705,6 +737,9 @@ python analisis/generar_datos_analisis.py
 - **Pose**: 6 ángulos articulares; en `poses.py` en grados, al broker en radianes.
   `/joint_states` se publica en grados (el driver `sync_plan_nx` exige grados);
   los *rechazos.csv* del broker y la FK usan radianes.
+- **Slot / Posición**: una de las **4 esquinas** del espacio delimitado (ver `zonas.py`);
+  cualquier color puede estar en cualquiera. La cámara publica el mapa `{slot: color}`
+  y el orquestador agarra en el slot del color pedido.
 
 ---
 
@@ -722,6 +757,7 @@ python analisis/generar_datos_analisis.py
 | `README_RETO2.md` | Existía en el commit `v1` | Borrado; su contenido es `README_PARCIAL.md` |
 | Orquestador | `orquestador_item2` (definitivo) vs `orquestador` (mínimo, **sin entry point**) | Usar **solo** `orquestador_item2` |
 | `ROS_DOMAIN_ID` | 43 = 42 + nº de equipo | Igual en las 5 máquinas antes de medir |
+| Resolución de la cámara | Las ROIs de `zonas.py` se midieron a **640×480** | `zonas.escalar_roi()` reescala a la resolución real, pero conviene que `usb_cam` entregue 640×480 o re-medir las ROIs |
 
 ### Riesgos de método / bugs latentes
 
@@ -734,8 +770,10 @@ python analisis/generar_datos_analisis.py
   negativos con sinónimos no listados; prioridad siempre 1.
 - **`broker.py`** tiene logs de depuración (`GUARDADO`/`BUSCANDO`/`ENCOLADO`) que
   conviene limpiar antes de la entrega.
-- **Cámara**: `percepcion_camara` solo confirma color y estabilidad (no localiza
-  el objeto en 3D); las poses son fijas. Si se mueve el objeto, el agarre falla.
+- **Cámara**: `percepcion_camara` resuelve en cuál de las **4 posiciones** está el
+  color pedido (ROIs de `zonas.py`), pero **no localiza el objeto en 3D**: el agarre
+  usa una pose fija por posición. Si un cubo se sale de su ROI o el espacio delimitado
+  se corre, el agarre falla (o la orden se rechaza con `color_no_encontrado`).
 - **`escalonar`**: un salto `AZUL→HOME` es ~1.98 rad; por eso el broker usa
   `paso_max_rad:=1.6` (o subir ambos pasos a 2.0). Si el orquestador trocea pero
   el broker valida con 1.2 por defecto, habrá rechazos `paso`.
@@ -762,8 +800,9 @@ tiempos + figura · video P2 (3 min) y video P3 sin internet · `publicadores.tx
 publicador único), `fk.py` (DH + validaciones), `politicas.py` (FIFO / aging),
 `cliente.py` (cliente de trazas), `interprete_ordenes.py` (nodo P1),
 `cliente_laya.py` (HTTP LAYA), `clasificador_palabras_clave.py` (respaldo local),
-`percepcion_camara.py` (detección de color), `orquestador_item2.py` (orquestador
-P2), `poses.py` (poses fijas + escalonado), `gripper.py` (pinza),
+`percepcion_camara.py` (detección de color por 4 zonas), `orquestador_item2.py` (orquestador
+P2), `poses.py` (poses fijas + escalonado), `zonas.py` (las 4 posiciones: ROI + pose de
+agarre), `gripper.py` (pinza),
 `intentos.py` (intentos + error FK), `transcriptor_voz.py` (nodo P3),
 `voz_google.py` (HTTP Google AI Studio), `cliente_texto.py` (frases por teclado),
 `orquestador.py` (mínimo, sin entry point). `setup.py` registra los 7

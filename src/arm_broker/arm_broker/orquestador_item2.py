@@ -2,18 +2,23 @@
 
 """ Puente entre la decisión tipada (Pregunta 1) y el broker del RB-2, con la regla de oro:
 SOLO el worker del broker publica comandos al brazo. Este nodo no publica /joint_states:
-únicamente escucha la decisión, espera la confirmación de la cámara, elige la pose fija, y
-envía la secuencia de goals a la acción move_arm (con la prioridad del modelo) y a la pinza.
+únicamente escucha la decisión, espera la confirmación de la cámara, elige la pose de la
+POSICIÓN donde se vio el color (4 posiciones — ver zonas.py), y envía la secuencia de goals a
+la acción move_arm (con la prioridad del modelo) y a la pinza.
+
+Sobre la mesa hay un espacio delimitado con CUATRO posiciones conocidas y un cubo por color en
+cualquier posición. La cámara publica el mapa {slot: color} y aquí se resuelve el slot del color
+pedido; si el color no está en ninguna posición se rechaza con causa 'color_no_encontrado'.
 
 Hay exactamente 3 acciones (ver tabla abajo). 'mover' es la única con una decisión real: si
 el brazo YA tiene un cubo en mano (self.cargando, de una 'agarrar' anterior) no repite el
 agarre, solo completa el tramo de transporte; si no tiene nada, hace el pick-and-place completo.
 
 Acción    | Requiere color | Secuencia
-agarrar   | sí             | busqueda → cámara confirma → abrir→recogida→cerrar → busqueda (queda cargando)
+agarrar   | sí             | busqueda → cámara resuelve slot → abrir→RECOGIDA[slot]→cerrar → busqueda
 soltar    | no             | abre la pinza donde esté, sin mover el brazo
 mover     | sí             | si self.cargando: reparto→destino[color]→abrir→home (NO vuelve a agarrar)
-          |                | si no: busqueda → cámara confirma → agarre completo → transporte → home
+          |                | si no: busqueda → slot → agarre completo → transporte → home
 detener   | no             | limpia la cola de pendientes y vuelve a home
 
 PARCHE_COMPENSACION_MOTOR.md (de la carpeta CLAUDE/) proponía dividir por un 'factor_motor';
@@ -55,6 +60,7 @@ class OrquestadorItem2(Node):
         self.declare_parameter('escala_prioridad', 85)         # priority = prioridad * 85 (0..3 → 0..255)
         self.declare_parameter('paso_max_rad', 1.6)            # trocea los movimientos largos
         self.declare_parameter('usar_camara', True)            # si no, confía en la decisión
+        self.declare_parameter('usar_zonas', True)             # True = 4 posiciones (mapa {slot: color}); False = pose única legacy
         self.declare_parameter('espera_deteccion_s', 3.0)
         self.declare_parameter('timeout_goal_s', 30.0)
         self.declare_parameter('gripper_action', 'gripper_command')
@@ -72,6 +78,7 @@ class OrquestadorItem2(Node):
         self.escala = int(self.get_parameter('escala_prioridad').value)
         self.paso_max = float(self.get_parameter('paso_max_rad').value)
         self.usar_camara = bool(self.get_parameter('usar_camara').value)
+        self.usar_zonas = bool(self.get_parameter('usar_zonas').value)
         self.espera_deteccion = float(self.get_parameter('espera_deteccion_s').value)
         self.timeout_goal = float(self.get_parameter('timeout_goal_s').value)
         self.archivo_rechazos = str(self.get_parameter('archivo_rechazos').value)
@@ -116,6 +123,8 @@ class OrquestadorItem2(Node):
         self.get_logger().info(f'  escala prioridad : x{self.escala}')
         self.get_logger().info(f'  paso_max_rad     : {self.paso_max}')
         self.get_logger().info(f'  usar_camara      : {self.usar_camara}')
+        self.get_logger().info(f'  usar_zonas       : {self.usar_zonas}'
+                               f'{"" if self.usar_zonas else "  [pose unica legacy]"}')
         self.get_logger().info(f'  pinza (acción)   : {self.get_parameter("gripper_action").value}'
                                f'{" [SIMULADA]" if not self.gripper_habilitada else ""}')
         self.get_logger().info('=' * 60)
@@ -185,6 +194,39 @@ class OrquestadorItem2(Node):
                 det = dict(self.deteccion) if self.deteccion else None
             if det and det.get('presente') and det.get('color') == color and det.get('estable'):
                 return det
+            time.sleep(0.05)
+        return None
+
+    def _mapa_slots(self):
+        """Devuelve {slot:int -> color:str} de la última detección, o {} si no hay nada."""
+        with self.lock:
+            det = dict(self.deteccion) if self.deteccion else None
+        if not det:
+            return {}
+        por_slot = det.get('por_slot') or {}
+        mapa = {}
+        for s, c in por_slot.items():
+            try:
+                mapa[int(s)] = c
+            except (TypeError, ValueError):
+                continue
+        return mapa
+
+    def _esperar_slot(self, color):
+        """Espera a que el MAPA estable {slot: color} contenga `color` y devuelve el slot (1..4).
+
+        Devuelve None si en `espera_deteccion_s` no apareció ese color en ninguna posición."""
+        limite = time.time() + self.espera_deteccion
+        while time.time() < limite and rclpy.ok():
+            with self.lock:
+                det = dict(self.deteccion) if self.deteccion else None
+            if det and det.get('estable'):
+                for s, c in (det.get('por_slot') or {}).items():
+                    if c == color:
+                        try:
+                            return int(s)
+                        except (TypeError, ValueError):
+                            continue
             time.sleep(0.05)
         return None
 
@@ -271,13 +313,14 @@ class OrquestadorItem2(Node):
             self.intento += 1
             self.get_logger().info(f'▶️  intento {self.intento}: "{frase}" accion=soltar')
             self._ejecutar_accion(decision, poses_mod.plan_soltar(), prioridad,
-                                  medir_recogida=False, cargando=False)
+                                  medir_recogida=False, cargando=False, zona='soltar')
             return
 
         # 'mover' cuando YA hay un cubo en mano (self.cargando, de una 'agarrar' anterior):
         # no hay que volver a buscar/agarrar, solo falta completar el tramo de transporte.
         continuar_cargado = (accion == 'mover' and self.cargando)
 
+        slot = None
         if not continuar_cargado:
             # 'agarrar' y 'mover' desde cero necesitan ir a POSE_BUSQUEDA y que la cámara
             # confirme el color ANTES de moverse más: si no, se vería la mesa desde otra
@@ -292,7 +335,18 @@ class OrquestadorItem2(Node):
                                'no se pudo llegar a POSE_BUSQUEDA (revisa rechazos.csv del '
                                'broker y que arm_broker esté corriendo)')
                 return
-            if self.usar_camara:
+            if self.usar_camara and self.usar_zonas:
+                # Con 4 posiciones: la cámara publica el mapa {slot: color}; aquí se resuelve
+                # EN QUÉ posición está el color pedido. Si no está en ninguna, se rechaza.
+                slot = self._esperar_slot(color)
+                if slot is None:
+                    self._rechazar(decision, 'color_no_encontrado',
+                                   f'la cámara no vio el color {color} en ninguna de las 4 '
+                                   f'posiciones (mapa={self._mapa_slots()})')
+                    return
+                self.get_logger().info(f'📍 color {color} detectado en slot {slot} '
+                                       f'(mapa={self._mapa_slots()})')
+            elif self.usar_camara:
                 det = self._esperar_deteccion(color)
                 if det is None:
                     self._rechazar(decision, 'sin_deteccion',
@@ -302,23 +356,32 @@ class OrquestadorItem2(Node):
         self.intento += 1
         self.get_logger().info(
             f'▶️  intento {self.intento}: "{frase}" accion={accion} '
-            f'({objeto}/{color}) priority={prioridad} cargando={self.cargando}')
+            f'({objeto}/{color}) priority={prioridad} cargando={self.cargando} '
+            f'slot={slot}')
 
+        zona = f'slot{slot}_{color}' if slot else f'zona_{color}'
         if accion == 'agarrar':
-            self._ejecutar_accion(decision, poses_mod.plan_agarrar(), prioridad,
-                                  medir_recogida=True, cargando=True)
+            self._ejecutar_accion(decision, poses_mod.plan_agarrar(slot), prioridad,
+                                  medir_recogida=True, cargando=True,
+                                  recogida_grados=poses_mod.recogida(slot), zona=zona)
         elif continuar_cargado:
             # Ya tiene el cubo en POSE_BUSQUEDA: solo falta reparto→destino[color]→abrir→home
             self._ejecutar_accion(decision, poses_mod.plan_transportar(color), prioridad,
-                                  medir_recogida=False, cargando=False)
+                                  medir_recogida=False, cargando=False,
+                                  zona=f'transporte_{color}')
         else:
-            # 'mover' de cero: pick-and-place completo (agarre + transporte + home)
-            self._ejecutar_accion(decision, poses_mod.plan_pick_and_place(color), prioridad,
-                                  medir_recogida=True, cargando=False)
+            # 'mover' de cero: pick-and-place completo (agarre en su slot + transporte + home)
+            self._ejecutar_accion(decision, poses_mod.plan_pick_and_place(color, slot), prioridad,
+                                  medir_recogida=True, cargando=False,
+                                  recogida_grados=poses_mod.recogida(slot), zona=zona)
 
-    def _ejecutar_accion(self, decision, pasos, prioridad, medir_recogida, cargando):
-        """Ejecuta una secuencia de pasos, registra el intento y actualiza el estado de carga"""
-        q_recogida_pedida = poses_mod.a_radianes(poses_mod.POSE_RECOGIDA)
+    def _ejecutar_accion(self, decision, pasos, prioridad, medir_recogida, cargando,
+                         recogida_grados=None, zona=None):
+        """Ejecuta una secuencia de pasos, registra el intento y actualiza el estado de carga
+
+        `recogida_grados` es la pose de agarre realmente pedida (la del slot); si es None se mide
+        contra POSE_RECOGIDA (legacy). `zona` es la etiqueta para intentos.csv (p.ej. slot3_verde)."""
+        q_recogida_pedida = poses_mod.a_radianes(recogida_grados or poses_mod.POSE_RECOGIDA)
         q_recogida_alcanzada = list(q_recogida_pedida)
         exito = True
 
@@ -345,7 +408,8 @@ class OrquestadorItem2(Node):
         error = (intentos_mod.error_mm(q_recogida_pedida, q_recogida_alcanzada)
                  if medir_recogida else 0.0)
         intentos_mod.registrar(self.archivo_intentos, self.intento, frase, objeto, color,
-                               f'zona_{color}', exito, q_recogida_pedida, q_recogida_alcanzada, error)
+                               zona or f'zona_{color}', exito, q_recogida_pedida,
+                               q_recogida_alcanzada, error)
         self.get_logger().info(
             f'🏁 intento {self.intento}: exito={exito} error_FK={error:.2f} mm '
             f'(cargando={self.cargando})')

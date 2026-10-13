@@ -11,12 +11,17 @@ El orquestador atiende **4 acciones** que vienen del intérprete:
 
 | Acción | Color | Secuencia | Termina |
 |---|---|---|---|
-| `agarrar` | obligatorio | busqueda (detección) → abrir → recogida → cerrar | queda cargando |
+| `agarrar` | obligatorio | busqueda (detección) → **cámara resuelve la posición** → abrir → RECOGIDA[posición] → cerrar | queda cargando |
 | `soltar` (con color) | opcional | busqueda → reparto → destino[color] → abrir → busqueda | POSE_BUSQUEDA |
 | `soltar` (sin color) | — | abre donde está → busqueda | POSE_BUSQUEDA |
-| `mover` / `llevar` | obligatorio | pick-and-place completo | POSE_HOME |
+| `mover` / `llevar` | obligatorio | pick-and-place completo (agarra en la posición del color) | POSE_HOME |
 | `detener` | — | limpia cola → HOME | POSE_HOME |
 
+> **4 posiciones, no una.** El espacio delimitado tiene **4 esquinas conocidas** (`zonas.py`)
+> y cualquier color puede estar en cualquiera de ellas. La cámara publica el mapa
+> `{slot: color}` y el orquestador agarra en la posición donde vio el color pedido. Si el
+> color **no está en ninguna** de las 4, la orden se rechaza con causa **`color_no_encontrado`**.
+>
 > Regla eliminatoria: **solo el worker del broker publica `/joint_states`**. El orquestador
 > solo envía goals a `move_arm` + `gripper_command` y lee `/joint_states` para el error FK.
 > El broker publica `/joint_states` en **grados** (el driver `sync_plan_nx` espera grados);
@@ -97,14 +102,18 @@ ros2 run arm_broker broker --ros-args \
 # T3 — intérprete de la P1
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_PC>:8000
 
-# T4 — percepción (publica /objeto_detectado)
+# T4 — percepción (publica /objeto_detectado con el mapa de las 4 posiciones)
 ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw
 
 # T5 — orquestador del Item 2
 ros2 run arm_broker orquestador_item2 --ros-args \
   -p escala_prioridad:=85 -p paso_max_rad:=1.6 -p usar_camara:=true \
+  -p usar_zonas:=true \
   -p gripper_action:=gripper_command
 ```
+
+> `usar_zonas:=true` (por defecto) resuelve en qué de las 4 posiciones está el color pedido.
+> Para volver al comportamiento viejo de pose única, `-p usar_zonas:=false`.
 
 **Cada integrante (T6..T9) — cliente de texto:**
 
@@ -128,7 +137,9 @@ ros2 run arm_broker cliente_texto --ros-args -r __node:=cliente_<nombre> \
 | detener | `detente` / `para` / `alto` | limpia la cola y vuelve a HOME |
 
 En `agarrar`/`mover` el color es **obligatorio** y la cámara debe confirmarlo; si no, la orden
-se rechaza con causa `sin_deteccion`. Órdenes `permitido=False` se rechazan **sin encolar**.
+se rechaza con causa `color_no_encontrado` (el color no está en ninguna de las 4 posiciones) o
+`sin_deteccion` (modo pose única con `usar_zonas:=false`). Órdenes `permitido=False` se rechazan
+**sin encolar**.
 
 ---
 
@@ -177,7 +188,7 @@ El flujo es: `orden_01.wav → Gemini → texto → /interpretar_orden → /orde
 ## 7. Pruebas ANTES de la demo
 
 ```bash
-# Sin mover el brazo: valida poses
+# Sin mover el brazo: valida las poses (HOME, búsqueda, las 4 recogidas y destinos)
 python herramientas/verificar_poses.py --paso-max 1.6
 
 # Cámara sin ROS
@@ -200,8 +211,8 @@ ros2 topic info /orden_decidida -v    # debe salir UN solo suscriptor: orquestad
 
 - `intentos.csv` — una fila por acción ejecutada (con `error_mm` por FK en `agarrar`/`mover`).
   Tabla de los **10 intentos** requerida por el enunciado.
-- `rechazos_orquestador.csv` — `no_permitida`, `objeto_desconocido`, `sin_deteccion`.
-- `ros2 topic echo /objeto_detectado` — captura del `color` y `estable:true`.
+- `rechazos_orquestador.csv` — `no_permitida`, `objeto_desconocido`, `color_no_encontrado`, `sin_deteccion`.
+- `ros2 topic echo /objeto_detectado` — captura del `color`, del mapa `por_slot` y de `estable:true`.
 - `evidencia/publicadores.txt` — verificación del publicador único.
 - Video de la demo (pick-and-place) + bolsa de tópicos si la piden.
 
@@ -211,7 +222,8 @@ ros2 topic info /orden_decidida -v    # debe salir UN solo suscriptor: orquestad
 
 - **Broker rechaza goal por `paso`**: baja `-p paso_max_rad` del orquestador (más waypoints) o súbelo en el broker.
 - **Todo se rechaza `no_permitida`**: revisa `motivo` en `rechazos_orquestador.csv` (LAYA/clasificador).
-- **`sin_deteccion`**: mueve el cubo a cámara; sube `-p espera_deteccion_s:=3.0`; verifica `usb_cam`.
+- **`sin_deteccion`**: modo pose única (`usar_zonas:=false`); mueve el cubo a cámara; sube `-p espera_deteccion_s:=3.0`; verifica `usb_cam`.
+- **`color_no_encontrado`**: el color pedido no aparece en ninguna de las 4 posiciones. Revisa `ros2 topic echo /objeto_detectado` (campo `por_slot`): si una esquina sale `null`, re-calibra su ROI en `zonas.py`; si los cubos están fuera del espacio delimitado, acomódalos.
 - **Gripper no cierra para el cubo**: calibra `-p gripper_abierto` / `gripper_cerrado` con `probar_pinza.py`.
 - **No se ve `/orden_decidida`**: el `ROS_DOMAIN_ID` y `ROS_DISCOVERY_SERVER` deben ser idénticos en las 5 máquinas (43).
 - **Dos orquestadores suscritos**: corre solo `orquestador_item2` (el `orquestador` de item3 no está registrado).
@@ -222,6 +234,7 @@ ros2 topic info /orden_decidida -v    # debe salir UN solo suscriptor: orquestad
 
 - [ ] Cámara, driver, broker, intérprete, percepción, orquestador y clientes arriba.
 - [ ] `agarrar`, `soltar` (con/sin color), `mover`, `detener` probados.
+- [ ] Cada color agarrado desde **su** posición de las 4 (y al menos un color ausente rechazado con `color_no_encontrado`).
 - [ ] `verificar_publicadores.py` pasa (1 publicador del broker).
 - [ ] `intentos.csv` con 10 intentos y `rechazos_orquestador.csv`.
 - [ ] Opcional: audio con `transcriptor_voz` desde una Raspberry.

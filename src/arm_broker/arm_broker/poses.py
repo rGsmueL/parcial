@@ -1,18 +1,31 @@
 """ Poses fijas (IK precalculada) del JetCobot para el agarre — Pregunta 2 """
 
-""" Sobre la mesa hay cuatro objetos en POSICIONES CONOCIDAS (dice el enunciado), por eso no se
-busca el objeto: la cámara solo confirma su color y la pose de agarre está precalculada.
+""" Sobre la mesa hay un espacio delimitado con CUATRO posiciones conocidas (las esquinas).
+En cada posición puede haber un cubo de cualquier color, así que la pose de agarre no depende
+del color sino de DÓNDE se vio ese color. La cámara (percepcion_camara) resuelve el mapa
+{posición → color} y aquí se elige la pose de la posición correspondiente.
 
-Las poses están en GRADOS (la convención del script probado con el kit,
+La tabla POSICIÓN→(ROI, pose de agarre) vive en zonas.py (fuente única de verdad); este módulo
+solo arma los PLANES. Las poses están en GRADOS (la convención del script probado con el kit,
 docs/agarrar_cubo_sin_rastreo.py) y se convierten a RADIANES para enviarlas al broker.
 Antes de la demo hay que verificar que pasan límites, workspace y paso con
 herramientas/verificar_poses.py """
 
 import math
 
+try:
+    from arm_broker import zonas
+except ImportError:                      # por si se ejecuta suelto desde la carpeta del paquete
+    import zonas
+
 # 1. Poses base (grados, convención del kit)
 POSE_HOME = [0, 0, 0, 0, 0, -45]
-POSE_BUSQUEDA = [10.81, -25.57, 15.9, -72.33, 2.02, -32.69]
+# POSE_BUSQUEDA es la vista global del tapete; las ROIs de zonas.py se midieron desde aquí.
+POSE_BUSQUEDA = list(zonas.POSE_BUSQUEDA)
+# Pose de agarre por POSICIÓN (grados): RECOGIDAS[slot]. Cualquier color puede caer en cualquier slot.
+RECOGIDAS = {slot: list(z['recogida']) for slot, z in zonas.ZONAS.items()}
+# POSE_RECOGIDA (legacy): pose única del centro, solo se usa si no se pudo resolver la posición
+# (p. ej. -p usar_zonas:=false). Con las 4 posiciones nuevas NO es una pose válida de agarre.
 POSE_RECOGIDA = [18.28, -36.65, -76.37, 10.45, -0.26, -22.76]
 POSE_REPARTO = [93.51, -4.04, -71.54, -12.83, -1.75, -36.29]
 
@@ -23,6 +36,11 @@ DESTINOS = {
     'verde': [96.15, -35.15, -81.73, 23.37, 5.27, -36.56],
     'azul': [113.29, -35.15, -81.73, 23.37, 5.27, -18.63],
 }
+
+
+def recogida(slot):
+    """Pose de agarre (grados) de una posición; cae a POSE_RECOGIDA si el slot es None/desconocido."""
+    return list(RECOGIDAS.get(slot, POSE_RECOGIDA))
 
 
 def a_radianes(grados):
@@ -53,15 +71,17 @@ def escalonar(q_desde_rad, q_hasta_rad, paso_max_rad):
 # 3. Las 3 acciones del orquestador: agarrar, soltar, mover (mover decide solo si ya
 #    tiene el cubo en mano o si tiene que agarrarlo primero — ver orquestador_item2._atender)
 
-def plan_agarrar():
-    """'agarrar': abre, baja a recogida, cierra, y VUELVE a POSE_BUSQUEDA con el cubo en mano.
+def plan_agarrar(slot=None):
+    """'agarrar': abre, baja a la recogida DE ESA POSICIÓN, cierra, y VUELVE a POSE_BUSQUEDA
+    con el cubo en mano.
 
     El orquestador ya deja el brazo en POSE_BUSQUEDA (espacio de detección) antes de llamar a
-    este plan (para que la cámara confirme el color), por eso no se repite ese primer tramo.
-    Termina en búsqueda (no en home) para poder encadenar 'mover' sin volver a agarrar."""
+    este plan (para que la cámara confirme el color y la posición), por eso no se repite ese
+    primer tramo. Termina en búsqueda (no en home) para poder encadenar 'mover' sin volver a
+    agarrar. `slot` es la posición (1..4) donde se vio el color pedido."""
     return [
         ('gripper', 'abrir'),
-        ('pose', 'recogida', POSE_RECOGIDA),
+        ('pose', 'recogida', recogida(slot)),
         ('gripper', 'cerrar'),
         ('pose', 'busqueda', POSE_BUSQUEDA),
     ]
@@ -90,6 +110,6 @@ def plan_transportar(color):
     return _transportar(color) + [('pose', 'home', POSE_HOME)]
 
 
-def plan_pick_and_place(color):
-    """'mover' de cero (sin agarre previo): agarra completo + lleva a la zona + home."""
-    return plan_agarrar() + _transportar(color) + [('pose', 'home', POSE_HOME)]
+def plan_pick_and_place(color, slot=None):
+    """'mover' de cero (sin agarre previo): agarra en la posición `slot` + lleva a la zona + home."""
+    return plan_agarrar(slot) + _transportar(color) + [('pose', 'home', POSE_HOME)]

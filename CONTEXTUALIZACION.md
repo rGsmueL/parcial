@@ -11,10 +11,11 @@
 
 Parcial de robótica (ROS 2 Humble) para el brazo **JetCobot**: una frase en español entra,
 pasa por un clasificador (LAYA), llega a una cola de prioridad en un **broker**, la cámara
-confirma el objeto, se elige una pose y el brazo la ejecuta.
+resuelve en cuál de las **4 posiciones** está el color pedido, se elige la pose de esa posición
+y el brazo la ejecuta.
 
 ```
-frase → LAYA/clasificador → cola de prioridad del broker → cámara → pose → brazo
+frase → LAYA/clasificador → cola de prioridad del broker → cámara → posición → pose → brazo
 ```
 
 Hay tres ítems: la cadena completa (1), la cinemática inversa / MoveIt2 (2), y la
@@ -247,9 +248,12 @@ física (todo eso vive en la Jetson).
 ## 9. Estado actual y siguientes pasos
 
 ### Estado
-- **`src/` NO fue modificado en esta entrega** (a propósito): ambas carpetas son fuente con
+- **`src/` NO fue modificado en las entregas 1–2** (a propósito): esas carpetas son fuente con
   guía de copiado.
 - `agent` entregó: `arreglar_angulos_y_gripper/`, `moveit2/` y `AGENTS.md` actualizado.
+- **Entrega 3 (4 posiciones) SÍ se aplicó a `src/`** y a `arreglar_angulos_y_gripper/`: se
+  agregó `zonas.py` y se actualizaron `percepcion_camara.py`, `poses.py`, `orquestador_item2.py`
+  y `herramientas/verificar_poses.py` (ver §10).
 
 ### Siguientes pasos (pendientes, en orden)
 1. (Opcional) Aplicar la entrega 1 a `src/` (broker, orquestador, poses, gripper, pinza) y
@@ -266,7 +270,46 @@ física (todo eso vive en la Jetson).
 
 ---
 
-## 10. Línea de tiempo resumida
+## 10. Entrega 3 — agarre por 4 posiciones (mapa color→posición)
+
+**Problema:** el sistema solo manejaba **una** posición (el centro del encuadre): la cámara
+devolvía la mancha de color más grande y la pose de agarre era fija. Si el cubo pedido no estaba
+en ese centro, el agarre fallaba.
+
+**Requisito:** el espacio delimitado del tapete tiene **4 esquinas** conocidas y cualquier color
+puede estar en cualquiera; al pedir *"agarra/lleva \<color\>"* hay que **encontrar** ese color
+entre las 4 posiciones y agarrar ahí.
+
+**Solución (opción A: ROIs fijas por zona, sin homografía ni IK en línea):**
+
+| Archivo | Qué cambió |
+|---|---|
+| `zonas.py` (**nuevo**) | **Fuente única de verdad**: `ZONAS = {slot: {roi, recogida}}`. ROIs (640×480) + pose de agarre en grados por posición. `escalar_roi()` adapta a la resolución real. |
+| `percepcion_camara.py` | Detecta el color en cada ROI y publica el **mapa `{slot: color}`** (`por_slot`) además del color dominante. `estable` = el mapa completo se repitió `confirmaciones` frames. |
+| `poses.py` | `RECOGIDAS[1..4]`, `recogida(slot)`, `plan_agarrar(slot)`, `plan_pick_and_place(color, slot)`. `POSE_RECOGIDA` única queda como *legacy* (`usar_zonas=false`). |
+| `orquestador_item2.py` | Tras ir a `POSE_BUSQUEDA`, `_esperar_slot(color)` resuelve la posición desde `por_slot` y agarra con la pose de ese slot. Nuevo rechazo **`color_no_encontrado`**; `intentos.csv` etiqueta `zona = slot<N>_<color>`. Flag `-p usar_zonas:=true` (default). |
+| `herramientas/verificar_poses.py` | Valida las 4 `RECOGIDAS` y las transiciones (agarre por slot, transporte por color). |
+
+**Decisiones:**
+- Entrega por color **sin cambios** (`DESTINOS` por color).
+- Si el color no está en ninguna posición → **solo se rechaza** (`color_no_encontrado`).
+- El broker **no se toca**: sigue siendo el único publicador de `/joint_states`; la frontera de
+  grados (`broker.mover()` publica grados; el orquestador relee con `math.radians`) se mantiene.
+- Las ROIs se midieron a 640×480 (resolución de la cámara de la demo) y `escalar_roi()` las
+  reescala si la real difiere.
+- Un cubo por color (asumido y confirmado antes de implementar).
+
+**Validación hecha aquí (sin ROS):** `verificar_poses.py --paso-max 1.6` → las 8 poses (HOME,
+búsqueda, 4 recogidas, reparto y 4 destinos) pasan límites y workspace; los saltos > 1.6 rad
+(recogidas 3/4 y búsqueda→reparto) los trocea `escalonar`. `py_compile` OK. Aplicado a `src/` y
+a la copia de `arreglar_angulos_y_gripper/` (a pedido).
+
+**Pendiente:** re-medir las ROIs si la cámara de la demo no entrega 640×480 o si el espacio
+delimitado se mueve.
+
+---
+
+## 11. Línea de tiempo resumida
 
 | Etapa | Qué pasó | Dónde quedó |
 |---|---|---|
@@ -280,6 +323,7 @@ física (todo eso vive en la Jetson).
 | 8 | Entrega 2: Ítem 2 con MoveIt2 + IK numérica | `moveit2/` |
 | 9 | Validación sintáctica y funcional de la IK | este documento, §8 |
 | 10 | Cierre de contexto para futuros agentes | `AGENTS.md` |
+| 11 | Entrega 3: agarre por 4 posiciones (mapa `{slot: color}`) | `zonas.py`, `src/…/percepcion_camara.py`, `poses.py`, `orquestador_item2.py`, este documento §10 |
 
 ---
 
