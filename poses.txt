@@ -1,8 +1,0 @@
-usando send_angles(joint1,joint2,joint3,joint4,joint5,joint6)
-
-angulos para busqueda: [20,-16,-7,-61,0,64]
-angulos para posicion de agarrar cada cubo con gripper abierto, seguro para cerrar gripper:
-azul(esquina superior derecha): 0,-48,-71,35,0,45
-amarillo(esquina superior izquierda): 27,-48,-67,29,2,69
-verde(esquina inferior izquierda): 41,-16,-128,58,0,90
-rojo(esquina inferior derecha): 3,-16,-128,58,0,50
