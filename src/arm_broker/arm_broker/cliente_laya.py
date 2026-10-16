@@ -15,7 +15,9 @@ def _preguntas_tipadas(objetos, colores, acciones):
     return {
         'accion': {
             'type': 'choice',
-            'instructions': '¿Qué acción le pide la frase al brazo robótico?',
+            'instructions': ('¿Qué acción le pide la frase al brazo robótico? Si la frase pide '
+                             'llevar o trasladar el objeto de un lugar a otro (lleva, trae, '
+                             'mueve, traslada), la acción es "mover"'),
             'criteria': list(acciones) + ['desconocido'],
         },
         'objeto': {
@@ -35,7 +37,10 @@ def _preguntas_tipadas(objetos, colores, acciones):
         },
         'permitido': {
             'type': 'noul',
-            'instructions': '¿Es una orden segura y razonable de ejecutar sobre una mesa de trabajo real respecto a un brazo robotico?',
+            'instructions': ('¿Es una orden segura y razonable de ejecutar por un brazo robótico '
+                             'sobre una mesa de trabajo que solo tiene cubos, cilindros y esferas '
+                             'de plástico? Si la frase menciona cualquier otra cosa (tijeras, '
+                             'cuchillos, personas, etc.) responde "no"'),
         },
     }
 
@@ -43,14 +48,25 @@ def _preguntas_tipadas(objetos, colores, acciones):
 def _extraer(answers, qid, por_defecto):
     """Saca el valor de una pregunta de la respuesta de LAYA; tolera varios nombres de campo
     porque el formato exacto solo se confirma hablando con el servidor real del laboratorio
-    (ver herramientas/probar_laya.py). Si no reconoce nada, deja el valor por defecto"""
+    (ver herramientas/probar_laya.py). Retorna (valor, encontrado): con encontrado=False se usó
+    el valor por defecto porque no se reconoció ningún campo de esa pregunta"""
     item = answers.get(qid, {})
     if not isinstance(item, dict):
-        return item if item is not None else por_defecto
+        if item is None:
+            return por_defecto, False
+        return item, True
     for clave in ('choice', 'score', 'noul', 'label', 'value', 'answer'):
         if clave in item and item[clave] is not None:
-            return item[clave]
-    return por_defecto
+            return item[clave], True
+    return por_defecto, False
+
+
+def _normalizar(valor, validos, por_defecto):
+    """Limpia el texto (espacios + minúsculas) y lo valida contra la lista cerrada de la
+    pregunta; lo que no esté en la lista cae al valor por defecto. Así nunca se acepta a
+    ciegas lo que devuelva el modelo (p.ej. una acción inventada)"""
+    texto = str(valor).strip().lower()
+    return texto if texto in validos else por_defecto
 
 
 def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
@@ -71,11 +87,23 @@ def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
     cuerpo = r.json()
     answers = cuerpo.get('answers', cuerpo)  # por si el server no envuelve la respuesta en "answers"
 
-    accion = str(_extraer(answers, 'accion', 'desconocido'))
-    objeto = str(_extraer(answers, 'objeto', 'desconocido'))
-    color = str(_extraer(answers, 'color', 'ninguno'))
-    prioridad_cruda = _extraer(answers, 'prioridad', 1)
-    permitido_crudo = _extraer(answers, 'permitido', True)
+    accion_cruda, accion_ok = _extraer(answers, 'accion', 'desconocido')
+    objeto_crudo, objeto_ok = _extraer(answers, 'objeto', 'desconocido')
+    color_crudo, color_ok = _extraer(answers, 'color', 'ninguno')
+    prioridad_cruda, prioridad_ok = _extraer(answers, 'prioridad', 1)
+    # OJO: permitido es el campo de seguridad; si no se puede leer, se asume False (fail-safe),
+    # NUNCA True. Un default True es justamente lo que dejaba pasar órdenes no reconocidas
+    permitido_crudo, permitido_ok = _extraer(answers, 'permitido', False)
+
+    # Si no se reconoció NINGÚN campo, la respuesta no es la que se pidió: mejor fallar aquí y
+    # que interprete_ordenes.py caiga al clasificador local que aceptar una decisión inventada
+    if not any((accion_ok, objeto_ok, color_ok, prioridad_ok, permitido_ok)):
+        raise ValueError('LAYA respondió algo que no trae ninguno de los campos pedidos '
+                         '(accion/objeto/color/prioridad/permitido)')
+
+    accion = _normalizar(accion_cruda, list(acciones) + ['desconocido'], 'desconocido')
+    objeto = _normalizar(objeto_crudo, list(objetos) + ['desconocido'], 'desconocido')
+    color = _normalizar(color_crudo, list(colores) + ['ninguno'], 'ninguno')
 
     try:
         prioridad = int(round(float(prioridad_cruda)))
@@ -89,13 +117,20 @@ def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
     else:
         permitido = bool(permitido_crudo)
 
+    if permitido:
+        motivo = ''
+    elif not permitido_ok:
+        motivo = 'LAYA no devolvió el campo permitido; por seguridad la orden no se ejecuta'
+    else:
+        motivo = 'LAYA marcó la orden como no permitida'
+
     decision = {
         'accion': accion,
         'objeto': objeto,
         'color': color,
         'prioridad': max(0, min(255, prioridad)),
         'permitido': permitido,
-        'motivo': '' if permitido else 'LAYA marcó la orden como no permitida',
+        'motivo': motivo,
     }
     return decision, cuerpo
 

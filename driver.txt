@@ -1,0 +1,71 @@
+==============================================================================
+driver.txt — CONTRATO DE UNIDADES CON EL DRIVER DEL KIT
+==============================================================================
+
+ESTADO ANTERIOR: en `arreglar_angulos_y_gripper/src/driver.txt` este archivo estaba
+VACIO (0 bytes). No existe ningún otro `driver.txt` en el repo y ningún archivo lo
+menciona. Por eso no "se adecuaba" a nada: no había contenido que comparar.
+
+QUE DEFINE LA ADECUACION (no es este archivo, es el driver real):
+
+    ros2 run jetcobot_driver sync_plan_nx        (nodo: control_sync_plan)
+
+El driver toma el valor que llega por `/joint_states` y lo pasa TAL CUAL a
+`send_angles()` de pymycobot. Y `send_angles()` espera GRADOS.
+
+    broker.mover()  --math.degrees-->  /joint_states (GRADOS)  -->  driver (send_angles)
+    orquestador._on_joint_states(--math.radians--> q_actual en RADIANES)
+
+Interno (FK, limites, paso_max_rad, q_actual, rechazos.csv) = RADIANES.
+Solo /joint_states (la frontera con el driver) = GRADOS.
+NO "corrijas" ninguno de los dos lados.
+
+------------------------------------------------------------------------------
+COMO LLENAR ESTE ARCHIVO EN LA JETSON (dos opciones, ambas validas)
+------------------------------------------------------------------------------
+
+OPCION A — guardar la SALIDA REAL del driver (lo mas util como evidencia):
+
+    # T1
+    ros2 run jetcobot_driver sync_plan_nx 2>&1 | tee driver.txt
+
+    # T2 (mientras el orquestador manda un goal)
+    ros2 topic echo /joint_states
+
+OPCION B — guardar el CODIGO del driver (para confirmar que pasa el valor tal cual):
+
+    ros2 pkg prefix jetcobot_driver
+    find "$(ros2 pkg prefix jetcobot_driver)" -name '*.py' | xargs grep -n 'send_angles'
+
+------------------------------------------------------------------------------
+QUE BUSCAR EN LA SALIDA (log del driver)
+------------------------------------------------------------------------------
+
+BIEN  ->  [control_sync_plan]: Ejecutando angulos: [10.81, -25.57, 15.9, -72.33, 2.02, -32.69]
+          (decenas de grados => el broker esta publicando GRADOS => correcto)
+
+MAL   ->  [control_sync_plan]: Ejecutando angulos: [0.1886700921519945, -0.44628..., ...]
+          (valores < 1 => el driver esta recibiendo RADIANES => el paquete instalado
+           es VIEJO: recompilar `colcon build --packages-select arm_broker_interfaces arm_broker
+           --symlink-install` y `source install/setup.bash`)
+
+NADA  ->  el driver no imprime "Ejecutando angulos" aunque el broker publique
+          => no se ven entre si: revisar ROS_DOMAIN_ID=43, RMW_IMPLEMENTATION=rmw_fastrtps_cpp,
+             ROS_DISCOVERY_SERVER=<jetson>:11811, y `ros2 node list` (debe salir control_sync_plan).
+
+------------------------------------------------------------------------------
+EVIDENCIA HISTORICA DEL BUG (ya documentada en el repo)
+------------------------------------------------------------------------------
+
+reporte.txt (raiz del repo):
+    [control_sync_plan]: Ejecutando angulos: [0.1886700921519945, -0.44628068974595006, ...]
+
+Esos valores son POSE_BUSQUEDA (en grados) convertida a radianes:
+    10.81 deg = 0.18867 rad  ->  el brazo se movia "una nada".
+Ver: docs/ARREGLOS/CAMBIOS_GRADOS_Y_GRIPPER.md §1 y CONTEXTUALIZACION.md §1.
+
+------------------------------------------------------------------------------
+PEGAR AQUI LA SALIDA REAL DE TU JETSON
+------------------------------------------------------------------------------
+
+(sin datos todavia)

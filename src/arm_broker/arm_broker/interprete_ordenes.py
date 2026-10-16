@@ -13,6 +13,7 @@ from arm_broker_interfaces.srv import InterpretarOrden
 
 from arm_broker import cliente_laya
 from arm_broker import clasificador_palabras_clave as clasificador
+from arm_broker import decisiones
 
 
 # 1. Nodo
@@ -61,9 +62,10 @@ class InterpreteOrdenes(Node):
 
     # 2. Atención del servicio
     def callback(self, request, response):
-        """Resuelve una frase: intenta LAYA primero (salvo forzar_clasificador=True),
-        y si no hay respuesta a tiempo cae al clasificador local. Nunca deja al cliente
-        esperando más de timeout_laya_s más el tiempo (rápido) del clasificador"""
+        """Resuelve una frase: intenta LAYA primero (salvo forzar_clasificador=True), y si no
+        responde a tiempo, contesta algo ilegible o no reconoce la acción, cae al clasificador
+        local. Nunca deja al cliente esperando más de timeout_laya_s más el tiempo (rápido) del
+        clasificador"""
         frase = request.frase.strip()
         t0 = time.time()
 
@@ -80,6 +82,18 @@ class InterpreteOrdenes(Node):
                     self.laya_url, self.laya_api_key, frase, self.timeout_laya,
                     self.objetos, self.colores, self.acciones)
 
+                # Solo se acepta la respuesta de LAYA si reconoció la acción: si devolvió
+                # 'desconocido' (o algo que no está en la lista), se trata como respuesta
+                # inválida y se resuelve con el clasificador local — nunca se completa una
+                # acción a medias ni se ejecuta lo que no se entiende
+                if not decisiones.accion_reconocida(decision):
+                    raise ValueError(
+                        f'LAYA no reconoció la acción ({decision.get("accion")!r})')
+
+                # Red de seguridad: aunque LAYA diga permitido=True, una palabra prohibida en la
+                # frase deja la orden como no permitida
+                decisiones.aplicar_reglas(decision, frase)
+
                 tiempo_total = time.time() - t0
                 tiempo_red = min(self.tiempo_red_base, tiempo_total)
                 tiempo_computo = max(0.0, tiempo_total - tiempo_red)
@@ -95,11 +109,12 @@ class InterpreteOrdenes(Node):
 
             except Exception as e:
                 self.get_logger().warn(
-                    f'⚠️  LAYA no respondió a tiempo o falló ({e!r}); '
+                    f'⚠️  LAYA no respondió bien ({e!r}); '
                     f'uso el clasificador por palabras clave para "{frase}"')
 
-        # Camino de respaldo: clasificador local (o fue pedido explícitamente)
-        decision = clasificador.clasificar(frase)
+        # Camino de respaldo: clasificador local (o fue pedido explícitamente). Se le aplican
+        # las mismas reglas de coherencia por si acaso
+        decision = decisiones.aplicar_reglas(clasificador.clasificar(frase), frase)
         tiempo_total = time.time() - t0
         self._llenar(response, **decision, degradada=True, fuente='palabras_clave',
                      t_total=tiempo_total, t_red=0.0, t_computo=0.0)

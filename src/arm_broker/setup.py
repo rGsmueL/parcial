@@ -24,7 +24,7 @@ setup(
             'transcriptor_voz = arm_broker.transcriptor_voz:main',
             'percepcion_camara = arm_broker.percepcion_camara:main',   
             'orquestador_item2 = arm_broker.orquestador_item2:main',  
-            'cliente_texto = arm_broker.cliente_texto:main',
+            'cliente_texto = arm_broker.cliente_texto:main', 
             'pinza_pymycobot = arm_broker.pinza_pymycobot:main',
         ],
     },

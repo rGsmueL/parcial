@@ -293,13 +293,12 @@ class OrquestadorItem2(Node):
             return
 
         tiene_color = color not in ('', 'ninguno')
+        # Sin relleno: una acción que no está en la lista NO se convierte en 'mover'. Si no se
+        # reconoce la acción, la orden se rechaza (antes se ejecutaba igual como traslado y eso
+        # contradecía lo que el log mostraba como 'desconocido')
         if accion not in ('agarrar', 'soltar', 'mover'):
-            # acción no reconocida: si hay color, se comporta como un traslado completo
-            accion = 'mover' if tiene_color else 'desconocido'
-
-        if accion == 'desconocido':
-            self._rechazar(decision, 'objeto_desconocido',
-                           'acción no reconocida y sin color; no hay pose de agarre')
+            self._rechazar(decision, 'accion_desconocida',
+                           f'la acción {accion!r} no se reconoce; no hay nada que ejecutar')
             return
         if accion != 'soltar' and (objeto == 'desconocido' or not tiene_color):
             self._rechazar(decision, 'objeto_desconocido',

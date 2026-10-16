@@ -27,14 +27,14 @@ ALTO_REF = 480
 
 # Pose de búsqueda: vista global del tapete (con el brazo fuera del encuadre) para que la
 # cámara vea las 4 posiciones. En GRADOS. La ROIs se midieron con la cámara aquí.
-POSE_BUSQUEDA = [20, -16, -7, -61, 0, -25]
+POSE_BUSQUEDA = [20, -16, -7, -61, 0, 64]
 
 ZONAS = {
     # slot: {roi (pixeles 640x480), recogida (grados)}
-    1: {'roi': (0,   0,   313, 243), 'recogida': [27, -48, -67,  29, 2, -6]},  # arriba-izq
-    2: {'roi': (313, 0,   640, 243), 'recogida': [4,  -48, -71,  35, 0, -30]},  # arriba-der
-    3: {'roi': (0,   243, 313, 480), 'recogida': [41, -16, -128, 58, 0, 1]},  # abajo-izq
-    4: {'roi': (313, 243, 640, 480), 'recogida': [3,  -16, -128, 58, 0, -35]},  # abajo-der
+    1: {'roi': (0,   0,   313, 243), 'recogida': [27, -48, -67,  29, 2, 69]},  # arriba-izq
+    2: {'roi': (313, 0,   640, 243), 'recogida': [0,  -48, -71,  35, 0, 45]},  # arriba-der
+    3: {'roi': (0,   243, 313, 480), 'recogida': [41, -16, -128, 58, 0, 90]},  # abajo-izq
+    4: {'roi': (313, 243, 640, 480), 'recogida': [3,  -16, -128, 58, 0, 50]},  # abajo-der
 }
 
 
