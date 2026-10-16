@@ -36,6 +36,13 @@ def _buscar(frase, diccionario):
     return None
 
 
+def tiene_prohibido(frase):
+    """True si la frase menciona algo de PROHIBIDO. Es la única regla sobre esa lista, y
+    decisiones.py la reutiliza para que LAYA y el clasificador local la apliquen igual"""
+    f = frase.lower()
+    return any(palabra in f for palabra in PROHIBIDO)
+
+
 def clasificar(frase):
     """Entrada: frase en español (string). Salida: dict con los mismos campos que arma
     cliente_laya.preguntar(), para que interprete_ordenes.py los trate igual sin importar
@@ -46,9 +53,9 @@ def clasificar(frase):
     objeto = _buscar(f, OBJETOS) or 'desconocido'
     color = _buscar(f, COLORES) or 'ninguno'
 
-    tiene_prohibido = any(palabra in f for palabra in PROHIBIDO)
-    permitido = not tiene_prohibido and accion != 'desconocido'
-    if tiene_prohibido:
+    prohibido = tiene_prohibido(f)
+    permitido = not prohibido and accion != 'desconocido'
+    if prohibido:
         motivo = 'la frase menciona algo fuera de lo permitido (palabra clave prohibida)'
     elif accion == 'desconocido':
         motivo = 'no se reconoció ninguna acción válida en la frase'

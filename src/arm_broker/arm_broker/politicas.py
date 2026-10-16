@@ -79,7 +79,6 @@ class SegundaPolitica(Politica):
         if self.tau <= 0.0:
             raise ValueError(
                 f'tau_envejecimiento_s debe ser > 0, llegó {self.tau}')
-        self.atendidos = 0    # Cuántos goals salieron de la cola por esta política
 
     def puntuacion(self, pedido):
         """Se calcula el score de un pedido: su urgencia más lo que lleva esperando"""
@@ -97,10 +96,6 @@ class SegundaPolitica(Politica):
         return max(
             range(len(pendientes)),
             key=lambda i: (self.puntuacion(pendientes[i]), -pendientes[i].t_llegada))
-
-    def atendido(self, pedido):
-        """Se lleva la cuenta de goals atendidos: alimenta la traza de la corrida"""
-        self.atendidos += 1
 
 POLITICAS = {
     'fifo': FIFO,

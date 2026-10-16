@@ -50,9 +50,6 @@ class Pinza:
             return None
         return futuro.result()
 
-    def disponible(self, timeout=5.0):
-        return self.cli.wait_for_server(timeout_sec=timeout)
-
     def _comandar(self, posicion):
         if not self.cli.wait_for_server(timeout_sec=self.timeout):
             if not self._aviso_dado:
